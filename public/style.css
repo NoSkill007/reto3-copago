@@ -118,9 +118,6 @@ textarea::placeholder { color: #687d74; opacity: 1; }
 .summary { padding: 20px 18px; background: var(--accent-soft-2); font-size: 14px; line-height: 1.65; animation: result-enter 280ms cubic-bezier(.22, 1, .36, 1); }
 .summary h3 { margin: 0 0 6px; font-size: 16px; }
 .summary .source { display: inline-block; margin-block-start: 10px; color: var(--muted-2); font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
-.uncertain-note { margin: 0; padding: 14px 18px; color: var(--warn-text); background: var(--warn-bg); font-size: 12px; line-height: 1.6; }
-.uncertain-note strong { display: block; margin-block-end: 3px; }
-.uncertain-note p { margin: 0; }
 .hospital { margin: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; }
 .hospital.best { border-color: var(--primary); background: #fbfdfb; }
 .hospital-top { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }

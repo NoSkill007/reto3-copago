@@ -1,4 +1,5 @@
 {
+  "rpcInitTimeoutMs": 90000,
   "serve": {
     "models": {
       "copago": {

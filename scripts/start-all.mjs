@@ -7,6 +7,8 @@ const qvacCli = fileURLToPath(new URL('../node_modules/@qvac/cli/dist/index.js',
 const qvacConfig = fileURLToPath(new URL('../qvac.config.mjs', import.meta.url));
 const webServer = fileURLToPath(new URL('../server.mjs', import.meta.url));
 const children = new Set();
+const qvacBase = 'http://127.0.0.1:11435/v1';
+const qvacStartupTimeoutMs = 95_000;
 let shuttingDown = false;
 
 console.log('[inicio] Iniciando la aplicación en http://127.0.0.1:3000');
@@ -25,22 +27,13 @@ webProcess.on('error', error => {
 
 let qvacProcess = null;
 if (await ensureDependencies()) {
-  if (await qvacIsReachable()) {
+  if (await qvacIsReady()) {
     console.log('[inicio] QVAC ya está disponible en 127.0.0.1:11435; se reutilizará.');
   } else {
-    console.log('[inicio] Iniciando QVAC. La primera ejecución puede descargar el modelo...');
-    qvacProcess = launch('QVAC', process.execPath, [qvacCli, 'serve', '--openai', '--port', '11435', '--config', qvacConfig]);
-    qvacProcess.on('exit', code => {
-      children.delete(qvacProcess);
-      if (!shuttingDown) console.warn(`[inicio] QVAC terminó con código ${code ?? 'desconocido'}. La web continuará en modo de reglas.`);
-    });
-    qvacProcess.on('error', error => {
-      children.delete(qvacProcess);
-      if (!shuttingDown) console.warn(`[inicio] No se pudo iniciar QVAC: ${error.message}. La web continuará en modo de reglas.`);
-    });
+    void startQvacWithFallback();
   }
 } else {
-  console.warn('[inicio] QVAC no está disponible. La web continuará en modo de reglas.');
+  console.warn('[inicio] QVAC no está disponible. La web seguirá activa, pero no orientará ni calculará precios.');
 }
 
 process.on('SIGINT', () => shutdown(0));
@@ -64,15 +57,65 @@ async function ensureDependencies() {
   }
 }
 
-async function qvacIsReachable() {
+async function qvacModelState() {
   try {
-    const response = await fetch('http://127.0.0.1:11435/v1/models', { signal: AbortSignal.timeout(1200) });
-    if (!response.ok) return false;
+    const response = await fetch(`${qvacBase}/models`, { signal: AbortSignal.timeout(1200) });
+    if (!response.ok) return 'unavailable';
     const body = await response.json();
-    return body.data?.some(model => model.id === 'copago') === true;
+    return body.data?.find(model => model.id === 'copago')?.state ?? 'unavailable';
   } catch {
-    return false;
+    return 'unavailable';
   }
+}
+
+async function qvacIsReady() {
+  return (await qvacModelState()) === 'ready';
+}
+
+async function startQvacWithFallback() {
+  const gpuReady = await startAndWaitForQvac('gpu');
+  if (gpuReady || shuttingDown) return;
+  console.warn('[inicio] QVAC no pudo iniciar con GPU. Reintentando una vez con CPU compatible...');
+  await stopQvac();
+  const cpuReady = await startAndWaitForQvac('cpu');
+  if (!cpuReady && !shuttingDown) console.error('[inicio] QVAC no pudo iniciar ni con GPU ni con CPU. Ejecuta `npm run qvac:doctor -- --deep --verbose`.');
+}
+
+async function startAndWaitForQvac(device) {
+  console.log(`[inicio] Iniciando QVAC con ${device === 'cpu' ? 'CPU compatible' : 'preferencia GPU'}...`);
+  qvacProcess = launch('QVAC', process.execPath, [qvacCli, 'serve', '--openai', '--port', '11435', '--config', qvacConfig], { env: { ...process.env, QVAC_DEVICE: device } });
+  qvacProcess.on('exit', code => {
+    children.delete(qvacProcess);
+    if (!shuttingDown) console.warn(`[inicio] QVAC terminó con código ${code ?? 'desconocido'}.`);
+  });
+  const deadline = Date.now() + qvacStartupTimeoutMs;
+  while (!shuttingDown && Date.now() < deadline) {
+    const state = await qvacModelState();
+    if (state === 'ready') {
+      console.log(`[inicio] QVAC y el modelo copago están listos (${device}).`);
+      return true;
+    }
+    if (state === 'error') {
+      console.warn(`[inicio] El modelo copago informó error durante el arranque (${device}).`);
+      return false;
+    }
+    await delay(1000);
+  }
+  console.warn(`[inicio] QVAC no quedó listo en ${qvacStartupTimeoutMs / 1000} segundos (${device}).`);
+  return false;
+}
+
+async function stopQvac() {
+  if (!qvacProcess) return;
+  qvacProcess.kill('SIGTERM');
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline && (await qvacModelState()) !== 'unavailable') await delay(200);
+  children.delete(qvacProcess);
+  qvacProcess = null;
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function launch(name, command, args, options = {}) {

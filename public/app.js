@@ -1,7 +1,7 @@
 const byId = id => document.getElementById(id);
 const money = cents => new Intl.NumberFormat('es-PA', { style: 'currency', currency: 'USD' }).format(cents / 100);
 const escapeHtml = text => String(text).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
-const sourceLabel = () => 'Orientación coordinada por QVAC local';
+const QVAC_SOURCE_LABEL = 'Orientación coordinada por QVAC local';
 
 let catalog;
 let caseId;
@@ -96,17 +96,14 @@ function restoreSubmitLabel() {
 }
 
 function renderComparison(result) {
-  const heading = result.uncertain ? 'Sin especialidad definitiva · consulta inicial' : `Orientación: ${escapeHtml(result.specialtyName)}`;
-  const uncertainNote = result.uncertain
-    ? `<div class="uncertain-note"><strong>Información que continúa pendiente</strong><p>${result.missing.map(escapeHtml).join(', ')}.</p></div>`
-    : '';
+  const heading = `Orientación: ${escapeHtml(result.specialtyName)}`;
   const hospitals = result.rows.map((hospital, index) => `
     <article class="hospital ${index === 0 && hospital.covered ? 'best' : ''}">
       <span class="tag">${!hospital.covered ? 'FUERA DE RED · SIN COBERTURA' : index === 0 ? 'MENOR GASTO EN TU RED' : 'EN TU RED'}</span>
       <div class="hospital-top"><div><h3>${escapeHtml(hospital.name)}</h3><small>${escapeHtml(hospital.area)}</small></div><div class="patient-cost"><div class="price">${money(hospital.patient)}</div><small>Tu gasto estimado</small></div></div>
       <div class="breakdown"><span>Tarifa de consulta</span><span>${money(hospital.rate)}</span><span>Copago fijo</span><span>${money(hospital.copay)}</span><span>Coaseguro sobre saldo</span><span>${money(hospital.coinsurance)}</span><span>Aporta el seguro</span><span>${money(hospital.insurer)}</span></div>
     </article>`).join('');
-  byId('results').innerHTML = `<div class="summary"><h3>${heading}</h3><div>${escapeHtml(result.explanation.text)}</div><span class="source">${sourceLabel(result.explanation.source)}</span></div>${uncertainNote}${hospitals}<p class="notice">Cálculo en centavos: copago + porcentaje del saldo. Fuera de red pagas la tarifa completa. La orientación es ilustrativa y no evalúa la gravedad; consulta a un profesional para confirmar la especialidad.</p>`;
+  byId('results').innerHTML = `<div class="summary"><h3>${heading}</h3><div>${escapeHtml(result.explanation.text)}</div><span class="source">${QVAC_SOURCE_LABEL}</span></div>${hospitals}<p class="notice">Cálculo en centavos: copago + porcentaje del saldo. Fuera de red pagas la tarifa completa. La orientación es ilustrativa y no evalúa la gravedad; consulta a un profesional para confirmar la especialidad.</p>`;
 }
 
 function renderRecovery(result) {

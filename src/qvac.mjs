@@ -13,7 +13,7 @@ export async function qvacStatus() {
     if (!model) return statusResult('unavailable', 'El modelo copago no está disponible.');
     if (model.state === 'ready') return statusResult('ready', 'QVAC y el modelo copago están listos.');
     if (['loading', 'downloading', 'starting'].includes(model.state)) return statusResult('loading', 'QVAC está preparando el modelo copago.');
-    return statusResult('error', `El modelo copago informó el estado ${model.state ?? 'desconocido'}.`);
+    return statusResult('error', `El modelo copago informó el estado ${model.state ?? 'desconocido'}. Reinicia el proyecto; si persiste, ejecuta npm run qvac:doctor -- --deep --verbose.`);
   } catch (error) {
     return error?.name === 'TimeoutError'
       ? statusResult('timeout', 'QVAC no respondió dentro del tiempo esperado.')

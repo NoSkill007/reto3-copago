@@ -36,8 +36,10 @@ export async function sendMessage(caseId, text, { turnId } = {}) {
     return inFlightTurn.promise;
   }
   let resolveTurn;
+  let rejectTurn;
   if (turnId) {
-    const promise = new Promise(resolve => { resolveTurn = resolve; });
+    const promise = new Promise((resolve, reject) => { resolveTurn = resolve; rejectTurn = reject; });
+    promise.catch(() => {});
     activeCase.turnRequests.set(turnId, { fingerprint, promise });
   }
   const complete = result => {
@@ -52,20 +54,28 @@ export async function sendMessage(caseId, text, { turnId } = {}) {
     return safeResult;
   };
 
-  const orientation = orient(text);
-  if (orientation.urgent) {
-    activeCase.transcript.push({ role: 'user', text });
-    activeCase.urgent = true;
-    activeCase.urgentMessage = orientation.message;
-    activeCase.comparison = null;
-    activeCase.transcript.push({ role: 'agent', text: orientation.message });
-    return complete({ urgent: true, message: orientation.message, source: 'safety' });
-  }
+  try {
+    const orientation = orient(text);
+    if (orientation.urgent) {
+      activeCase.transcript.push({ role: 'user', text });
+      activeCase.urgent = true;
+      activeCase.urgentMessage = orientation.message;
+      activeCase.comparison = null;
+      activeCase.transcript.push({ role: 'agent', text: orientation.message });
+      return complete({ urgent: true, message: orientation.message, source: 'safety' });
+    }
 
-  const replayingPendingTurn = activeCase.pendingRetryText === text;
-  const userMessage = { role: 'user', text };
-  if (!replayingPendingTurn) captureFieldAnswer(activeCase.transcript, text, activeCase.fieldAnswers);
-  return complete(await qvacFlow(activeCase, userMessage, replayingPendingTurn));
+    const replayingPendingTurn = activeCase.pendingRetryText === text;
+    const userMessage = { role: 'user', text };
+    if (!replayingPendingTurn) captureFieldAnswer(activeCase.transcript, text, activeCase.fieldAnswers);
+    return complete(await qvacFlow(activeCase, userMessage, replayingPendingTurn));
+  } catch (error) {
+    if (turnId) {
+      activeCase.turnRequests.delete(turnId);
+      rejectTurn(error);
+    }
+    throw error;
+  }
 }
 
 async function qvacFlow(activeCase, userMessage, retryingQvac) {
