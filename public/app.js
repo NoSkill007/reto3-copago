@@ -9,7 +9,7 @@ async function status(){try{const s=await fetch('/api/status').then(r=>r.json())
 
 function addMessage(text, role){
  const div=document.createElement('div');
- div.className = role==='user' ? 'message user' : 'message';
+ div.className = role==='progress' ? 'progress' : role==='user' ? 'message user' : 'message';
  div.textContent = text;
  $('messages').appendChild(div);
 }
@@ -35,7 +35,9 @@ document.querySelectorAll('[data-example]').forEach(button=>button.addEventListe
 $('refresh').addEventListener('click',status);
 
 function renderComparison(result){
- $('results').innerHTML=`<div class="summary"><h3>Orientación: ${escape(result.specialtyName)}</h3><div>${escape(result.explanation.text)}</div><span class="source">${sourceLabel(result.explanation.source)}</span></div>`+result.rows.map((h,i)=>`<article class="hospital ${i===0 && h.covered?'best':''}"><span class="tag">${!h.covered?'FUERA DE RED · SIN COBERTURA':i===0?'MENOR GASTO EN TU RED':'EN TU RED'}</span><div class="hospital-top"><div><h3>${escape(h.name)}</h3><small>${escape(h.area)}</small></div><div><div class="price">${money(h.patient)}</div><small>Tu gasto estimado</small></div></div><div class="breakdown"><span>Tarifa de consulta</span><span>${money(h.rate)}</span><span>Copago fijo</span><span>${money(h.copay)}</span><span>Coaseguro sobre saldo</span><span>${money(h.coinsurance)}</span><span>Aporta el seguro</span><span>${money(h.insurer)}</span></div></article>`).join('')+'<p class="notice">Datos ficticios. Cálculo en centavos: copago + porcentaje del saldo. Fuera de red pagas la tarifa completa. La orientación es ilustrativa y no evalúa la gravedad; consulta a un profesional para confirmar la especialidad.</p>';
+ const heading = result.uncertain ? 'Sin especialidad definitiva · consulta general inicial' : `Orientación: ${escape(result.specialtyName)}`;
+ const uncertainNote = result.uncertain ? '<p class="notice uncertain-note">No fue posible orientar con certeza tras varias preguntas. Esta comparación usa una consulta general inicial como punto de partida, no una especialidad definitiva.</p>' : '';
+ $('results').innerHTML=`<div class="summary"><h3>${heading}</h3><div>${escape(result.explanation.text)}</div><span class="source">${sourceLabel(result.explanation.source)}</span></div>`+uncertainNote+result.rows.map((h,i)=>`<article class="hospital ${i===0 && h.covered?'best':''}"><span class="tag">${!h.covered?'FUERA DE RED · SIN COBERTURA':i===0?'MENOR GASTO EN TU RED':'EN TU RED'}</span><div class="hospital-top"><div><h3>${escape(h.name)}</h3><small>${escape(h.area)}</small></div><div><div class="price">${money(h.patient)}</div><small>Tu gasto estimado</small></div></div><div class="breakdown"><span>Tarifa de consulta</span><span>${money(h.rate)}</span><span>Copago fijo</span><span>${money(h.copay)}</span><span>Coaseguro sobre saldo</span><span>${money(h.coinsurance)}</span><span>Aporta el seguro</span><span>${money(h.insurer)}</span></div></article>`).join('')+'<p class="notice">Datos ficticios. Cálculo en centavos: copago + porcentaje del saldo. Fuera de red pagas la tarifa completa. La orientación es ilustrativa y no evalúa la gravedad; consulta a un profesional para confirmar la especialidad.</p>';
 }
 
 $('form').addEventListener('submit',async e=>{
@@ -51,7 +53,7 @@ $('form').addEventListener('submit',async e=>{
   const response=await fetch('/api/case/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caseId,text})});
   const result=await response.json();if(!response.ok)throw new Error(result.error);
   if(result.urgent){addMessage(result.message,'agent');$('results').innerHTML=`<div class="urgent"><strong>Prioriza tu atención</strong><p>${escape(result.message)}</p></div>`;return;}
-  if(result.question){addMessage(result.question,'agent');return;}
+  if(result.question){addMessage(result.question,'agent');if(typeof result.questionsAsked==='number')addMessage(`Pregunta ${result.questionsAsked} de 5`,'progress');return;}
   addMessage(result.explanation.text,'agent');
   renderComparison(result);
  }catch(error){$('error').textContent=error.message||'No se pudo consultar. Intenta de nuevo.';}

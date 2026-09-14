@@ -5,13 +5,15 @@ import { toolCatalog, toolCoverage, toolCompare } from './tools.mjs';
 import { decideAction } from './qvac.mjs';
 
 const MAX_TOOL_STEPS = 3;
+const MAX_QUESTIONS = 5;
+const UNCERTAIN_MESSAGE = 'Después de varias preguntas, la información sigue siendo insuficiente para una orientación segura. Comparamos una consulta general inicial como punto de partida; no es una especialidad definitiva.';
 const cases = new Map();
 
 export function startCase(planId) {
   const plan = plans.find(p => p.id === planId);
   if (!plan) throw new Error('Plan inválido.');
   const caseId = randomUUID();
-  cases.set(caseId, { planId, transcript: [], urgent: false, comparison: null });
+  cases.set(caseId, { planId, transcript: [], urgent: false, comparison: null, questionsAsked: 0 });
   return {
     caseId,
     plan: { id: plan.id, name: plan.name, description: plan.description, copay: plan.copay, coinsurance: plan.coinsurance }
@@ -29,9 +31,12 @@ export async function sendMessage(caseId, text) {
   if (typeof text !== 'string' || text.trim().length < 2 || text.length > 2000) throw new Error('Describe tu mensaje (2 a 2000 caracteres).');
   activeCase.transcript.push({ role: 'user', text });
 
+  if (activeCase.urgent) return { urgent: true, message: activeCase.urgentMessage, source: 'rules' };
+
   const orientation = orient(text);
   if (orientation.urgent) {
     activeCase.urgent = true;
+    activeCase.urgentMessage = orientation.message;
     activeCase.comparison = null;
     activeCase.transcript.push({ role: 'agent', text: orientation.message });
     return { urgent: true, message: orientation.message, source: 'rules' };
@@ -39,10 +44,12 @@ export async function sendMessage(caseId, text) {
 
   const toolResults = [];
   for (let step = 0; step < MAX_TOOL_STEPS; step++) {
-    const decision = await decideAction({ plan: activeCase.planId, transcript: activeCase.transcript, toolResults });
+    const decision = await decideAction({ plan: activeCase.planId, transcript: activeCase.transcript, toolResults, questionsAsked: activeCase.questionsAsked, maxQuestions: MAX_QUESTIONS });
     if (decision.action === 'ask') {
+      if (activeCase.questionsAsked >= MAX_QUESTIONS) return presentComparison(activeCase, 'general', UNCERTAIN_MESSAGE, 'rules', true);
+      activeCase.questionsAsked++;
       activeCase.transcript.push({ role: 'agent', text: decision.question });
-      return { question: decision.question, source: 'qvac' };
+      return { question: decision.question, source: 'qvac', questionsAsked: activeCase.questionsAsked, questionsRemaining: MAX_QUESTIONS - activeCase.questionsAsked };
     }
     if (decision.action === 'catalog') { toolResults.push({ tool: 'catalog', result: toolCatalog() }); continue; }
     if (decision.action === 'coverage') { toolResults.push({ tool: 'coverage', result: toolCoverage(activeCase.planId) }); continue; }
@@ -56,24 +63,20 @@ function sanitizeExplanation(explanation) {
   return typeof explanation === 'string' && explanation.trim() && !/\d|\$/.test(explanation) ? explanation.trim() : null;
 }
 
-function presentComparison(activeCase, specialty, explanationText, source) {
+function presentComparison(activeCase, specialty, explanationText, source, uncertain = false) {
   const { specialtyName, rows } = toolCompare(activeCase.planId, specialty);
   activeCase.comparison = { specialty, rows };
   const text = explanationText ?? (source === 'qvac'
     ? 'La tabla muestra el gasto estimado de tu consulta con este plan ficticio, ordenado primero por menor gasto en tu red.'
     : 'La tabla muestra el gasto estimado de tu consulta con tu plan ficticio. QVAC no está disponible: esta respuesta procede de las reglas de demostración, sin IA.');
   activeCase.transcript.push({ role: 'agent', text });
-  return { specialty, specialtyName, rows, explanation: { source, text } };
+  return { specialty, specialtyName, rows, explanation: { source, text }, ...(uncertain ? { uncertain: true } : {}) };
 }
 
+// Nunca ve urgencia aquí: cualquier mensaje urgente ya interrumpió el caso
+// (arriba) en el momento en que se envió, antes de llegar a este punto.
 function fallbackFlow(activeCase) {
   const allUserText = activeCase.transcript.filter(m => m.role === 'user').map(m => m.text).join(' ');
-  const orientation = orient(allUserText);
-  if (orientation.urgent) {
-    activeCase.urgent = true;
-    activeCase.comparison = null;
-    activeCase.transcript.push({ role: 'agent', text: orientation.message });
-    return { urgent: true, message: orientation.message, source: 'rules' };
-  }
-  return presentComparison(activeCase, orientation.specialty, null, 'rules');
+  const { specialty } = orient(allUserText);
+  return presentComparison(activeCase, specialty, null, 'rules');
 }

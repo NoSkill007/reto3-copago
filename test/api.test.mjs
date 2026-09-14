@@ -184,6 +184,58 @@ test('un mensaje posterior no urgente que degrada a reglas no revienta si el his
   });
 });
 
+test('detiene las preguntas en cuanto hay información suficiente, antes del máximo', async t => {
+  mockQvac([{ action: 'ask', question: '¿Cuál es tu edad?' }, { action: 'compare', specialty: 'dermatology' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const first = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    assert.equal(first.body.question, '¿Cuál es tu edad?');
+    assert.equal(first.body.questionsAsked, 1);
+    assert.equal(first.body.questionsRemaining, 4);
+    const second = await sendMessage(base, created.body.caseId, 'Tengo 30 años');
+    assert.equal(second.body.specialty, 'dermatology');
+    assert.equal(second.body.explanation.source, 'qvac');
+  });
+});
+
+test('permite hasta cinco preguntas de seguimiento y bloquea un sexto intento sin inventar la especialidad', async t => {
+  mockQvac(call => ({ action: 'ask', question: `Pregunta de seguimiento número ${call + 1}` }));
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    let result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    for (let i = 1; i <= 5; i++) {
+      assert.equal(result.body.question, `Pregunta de seguimiento número ${i}`);
+      assert.equal(result.body.questionsAsked, i);
+      assert.equal(result.body.questionsRemaining, 5 - i);
+      result = await sendMessage(base, created.body.caseId, `Respuesta ${i}`);
+    }
+    // El sexto intento del modelo de seguir preguntando se rechaza fuera del modelo.
+    assert.equal(result.status, 200);
+    assert.equal(result.body.question, undefined);
+    assert.equal(result.body.uncertain, true);
+    assert.equal(result.body.specialty, 'general');
+    assert.equal(result.body.explanation.source, 'rules');
+    assert.ok(result.body.rows.length > 0);
+  });
+});
+
+test('una urgencia previa en el caso bloquea permanentemente mensajes posteriores, incluso al agotar las cinco preguntas', async t => {
+  mockQvac(() => ({ action: 'ask', question: '¿Algo más?' }));
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const first = await sendMessage(base, created.body.caseId, 'Tengo dolor de pecho');
+    assert.equal(first.body.urgent, true);
+    for (let i = 0; i < 6; i++) {
+      const next = await sendMessage(base, created.body.caseId, `Mensaje de seguimiento ${i}`);
+      assert.equal(next.status, 200);
+      assert.equal(next.body.urgent, true);
+      assert.equal(next.body.message, first.body.message);
+      assert.equal(next.body.rows, undefined);
+      assert.equal(next.body.uncertain, undefined);
+    }
+  });
+});
+
 test('plan inválido al iniciar un caso', async t => {
   await withServer(t, async base => {
     const created = await startCase(base, 'inexistente');
