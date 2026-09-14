@@ -202,7 +202,7 @@ test('permite hasta cinco preguntas de seguimiento y bloquea un sexto intento si
   mockQvac(call => ({ action: 'ask', question: `Pregunta de seguimiento número ${call + 1}` }));
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
-    let result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    let result = await sendMessage(base, created.body.caseId, 'Tengo molestias generales');
     for (let i = 1; i <= 5; i++) {
       assert.equal(result.body.question, `Pregunta de seguimiento número ${i}`);
       assert.equal(result.body.questionsAsked, i);
@@ -233,6 +233,88 @@ test('una urgencia previa en el caso bloquea permanentemente mensajes posteriore
       assert.equal(next.body.rows, undefined);
       assert.equal(next.body.uncertain, undefined);
     }
+  });
+});
+
+test('regresión: pediatría en Esencial ordena La Ceiba primero y deja Canal fuera de red', async t => {
+  mockQvac([{ action: 'compare', specialty: 'pediatrics' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Mi hijo de 5 años tiene fiebre');
+    assert.equal(result.body.specialty, 'pediatrics');
+    const ceiba = result.body.rows.find(r => r.id === 'ceiba');
+    const bahia = result.body.rows.find(r => r.id === 'bahia');
+    const canal = result.body.rows.find(r => r.id === 'canal');
+    assert.equal(ceiba.patient, 2000);
+    assert.equal(bahia.patient, 2200);
+    assert.equal(canal.covered, false);
+    assert.equal(canal.patient, 6000);
+    assert.equal(result.body.rows[0].id, 'ceiba');
+  });
+});
+
+test('regresión: ginecología/obstetricia en Plus calcula los tres hospitales en red', async t => {
+  mockQvac([{ action: 'compare', specialty: 'gyn' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'plus');
+    const result = await sendMessage(base, created.body.caseId, 'Estoy embarazada y quiero un control');
+    assert.equal(result.body.specialty, 'gyn');
+    const ceiba = result.body.rows.find(r => r.id === 'ceiba');
+    const bahia = result.body.rows.find(r => r.id === 'bahia');
+    const canal = result.body.rows.find(r => r.id === 'canal');
+    assert.equal(ceiba.patient, 1600);
+    assert.equal(bahia.patient, 1750);
+    assert.equal(canal.patient, 1880);
+    assert.ok(canal.covered);
+  });
+});
+
+test('modo de reglas orienta a pediatría cuando el paciente es un niño y no hay síntoma más específico', async t => {
+  mockQvac([{ action: 'no_permitida' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Mi hijo tiene 5 años y está decaído');
+    assert.equal(result.body.explanation.source, 'rules');
+    assert.equal(result.body.specialty, 'pediatrics');
+  });
+});
+
+test('modo de reglas orienta a ginecología/obstetricia cuando hay embarazo y no hay síntoma más específico', async t => {
+  mockQvac([{ action: 'no_permitida' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Estoy embarazada y tengo molestias generales');
+    assert.equal(result.body.explanation.source, 'rules');
+    assert.equal(result.body.specialty, 'gyn');
+  });
+});
+
+test('una duración expresada como "desde hace X años" no se confunde con la edad del paciente', async t => {
+  mockQvac([{ action: 'no_permitida' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo molestias generales desde hace 3 años');
+    assert.equal(result.body.specialty, 'general');
+  });
+});
+
+test('el embarazo no fuerza ginecología cuando el síntoma descrito es de otra especialidad', async t => {
+  mockQvac([{ action: 'no_permitida' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Estoy embarazada y tengo picazón en la piel');
+    assert.equal(result.body.specialty, 'dermatology');
+  });
+});
+
+test('la oferta de consulta inicial tras agotar preguntas usa el contexto de edad ya aportado, no medicina general a ciegas', async t => {
+  mockQvac(() => ({ action: 'ask', question: '¿Algo más?' }));
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    let result = await sendMessage(base, created.body.caseId, 'Mi hijo de 3 años está decaído');
+    for (let i = 0; i < 5; i++) result = await sendMessage(base, created.body.caseId, `Respuesta ${i}`);
+    assert.equal(result.body.uncertain, true);
+    assert.equal(result.body.specialty, 'pediatrics');
   });
 });
 

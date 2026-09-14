@@ -32,6 +32,7 @@ export async function decideAction({ plan, transcript, toolResults, questionsAsk
 {"action":"catalog"} consulta el catálogo de especialidades disponibles.
 {"action":"coverage"} consulta las condiciones del plan del caso.
 {"action":"compare","specialty":"<id>","explanation":"..."} compara el gasto, donde <id> es uno de: ${specialtyList}.
+El alcance incluye adultos, niños y embarazo. Considera pediatría cuando el paciente sea un niño y ginecología/obstetricia cuando haya embarazo, pero no asumas ninguna de las dos solo por la edad o el embarazo: un síntoma concreto (piel, estómago, articulación) sigue orientando a esa especialidad aunque la paciente esté embarazada o el paciente sea menor. No asumas una edad o un embarazo que el paciente no haya mencionado.
 Nunca inventes precios ni coberturas: los montos los calculan únicamente las herramientas. La explicación no debe incluir cifras ni el símbolo $. El plan de este caso es ${plan}. Ya hiciste ${questionsAsked} de ${maxQuestions} preguntas de seguimiento posibles; te quedan ${remaining}. En cuanto tengas información suficiente, usa "compare" en vez de seguir preguntando; si no te queda ninguna pregunta disponible, usa "compare" con la especialidad más razonable en vez de "ask". /no_think` },
           { role: 'user', content: `Historial de la conversación:\n${history || '(sin mensajes aún)'}\n${tools ? `Resultados de herramientas ya consultadas:\n${tools}\n` : ''}Decide la siguiente acción en JSON.` }
         ]

@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { plans, specialties } from './catalog.mjs';
+import { plans } from './catalog.mjs';
 import { orient } from './orientation.mjs';
 import { toolCatalog, toolCoverage, toolCompare } from './tools.mjs';
 import { decideAction } from './qvac.mjs';
 
 const MAX_TOOL_STEPS = 3;
 const MAX_QUESTIONS = 5;
-const UNCERTAIN_MESSAGE = 'Después de varias preguntas, la información sigue siendo insuficiente para una orientación segura. Comparamos una consulta general inicial como punto de partida; no es una especialidad definitiva.';
+const UNCERTAIN_MESSAGE = 'Después de varias preguntas, la información sigue siendo insuficiente para una orientación segura. Comparamos una consulta inicial como punto de partida según lo que sí compartiste; no es una especialidad definitiva.';
 const cases = new Map();
 
 export function startCase(planId) {
@@ -46,7 +46,7 @@ export async function sendMessage(caseId, text) {
   for (let step = 0; step < MAX_TOOL_STEPS; step++) {
     const decision = await decideAction({ plan: activeCase.planId, transcript: activeCase.transcript, toolResults, questionsAsked: activeCase.questionsAsked, maxQuestions: MAX_QUESTIONS });
     if (decision.action === 'ask') {
-      if (activeCase.questionsAsked >= MAX_QUESTIONS) return presentComparison(activeCase, 'general', UNCERTAIN_MESSAGE, 'rules', true);
+      if (activeCase.questionsAsked >= MAX_QUESTIONS) return presentComparison(activeCase, contextSpecialty(activeCase), UNCERTAIN_MESSAGE, 'rules', true);
       activeCase.questionsAsked++;
       activeCase.transcript.push({ role: 'agent', text: decision.question });
       return { question: decision.question, source: 'qvac', questionsAsked: activeCase.questionsAsked, questionsRemaining: MAX_QUESTIONS - activeCase.questionsAsked };
@@ -76,7 +76,12 @@ function presentComparison(activeCase, specialty, explanationText, source, uncer
 // Nunca ve urgencia aquí: cualquier mensaje urgente ya interrumpió el caso
 // (arriba) en el momento en que se envió, antes de llegar a este punto.
 function fallbackFlow(activeCase) {
+  return presentComparison(activeCase, contextSpecialty(activeCase), null, 'rules');
+}
+
+// Deriva la especialidad de todo lo que el paciente ya escribió (síntomas,
+// edad, embarazo), sin inventar nada que no haya sido aportado.
+function contextSpecialty(activeCase) {
   const allUserText = activeCase.transcript.filter(m => m.role === 'user').map(m => m.text).join(' ');
-  const { specialty } = orient(allUserText);
-  return presentComparison(activeCase, specialty, null, 'rules');
+  return orient(allUserText).specialty;
 }
