@@ -178,6 +178,7 @@ test('acción no permitida del modelo se rechaza sin generar precios', async t =
     const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
     assert.equal(result.status, 200);
     assert.equal(result.body.recovery.reason, 'invalid_response');
+    assert.doesNotMatch(result.body.message, /QVAC/i);
     assert.equal(result.body.rows, undefined);
     assert.equal(result.body.specialty, undefined);
   });
