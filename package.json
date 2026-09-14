@@ -6,8 +6,9 @@
   "scripts": {
     "start": "node scripts/start-all.mjs",
     "start:web": "node server.mjs",
-    "check": "node --check server.mjs && node --check scripts/start-all.mjs && node --check public/app.js && node --check src/app.mjs && node --check src/agent.mjs && node --check src/case-store.mjs && node --check src/conversation.mjs && node --check src/qvac.mjs && node --check src/tools.mjs && node --check src/catalog.mjs && node --check src/estimate.mjs && node --check src/orientation.mjs",
+    "check": "node --check server.mjs && node --check scripts/start-all.mjs && node --check public/app.js && node --check src/app.mjs && node --check src/agent.mjs && node --check src/case-store.mjs && node --check src/conversation.mjs && node --check src/qvac.mjs && node --check src/safety.mjs && node --check src/tools.mjs && node --check src/catalog.mjs && node --check src/estimate.mjs && node --check src/orientation.mjs",
     "test": "node --test",
+    "test:qvac:live": "node --test test/qvac-live.test.mjs",
     "qvac:install": "npm ci",
     "qvac:doctor": "qvac doctor",
     "qvac:start": "qvac serve --openai --port 11435 --config qvac.config.mjs"

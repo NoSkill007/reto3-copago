@@ -4,6 +4,7 @@ import { toolCatalog, toolCoverage, toolCompare } from './tools.mjs';
 import { decideAction } from './qvac.mjs';
 import { closeCaseState, createCaseState, getCaseState } from './case-store.mjs';
 import { captureFieldAnswer, followUpFor } from './conversation.mjs';
+import { childFeverSafetyCheck, resolveChildFeverSafety } from './safety.mjs';
 
 const MAX_TOOL_STEPS = 3;
 const MAX_QUESTIONS = 5;
@@ -55,14 +56,24 @@ export async function sendMessage(caseId, text, { turnId } = {}) {
   };
 
   try {
+    if (activeCase.safetyGate === 'child_fever') {
+      const safety = resolveChildFeverSafety(text);
+      if (safety.urgent) return complete(stopForUrgency(activeCase, text, safety.message));
+      if (!safety.cleared) return complete(presentSafetyQuestion(activeCase, text, safety));
+      activeCase.safetyGate = null;
+    }
+
     const orientation = orient(text);
     if (orientation.urgent) {
+      return complete(stopForUrgency(activeCase, text, orientation.message));
+    }
+
+    const childFever = childFeverSafetyCheck(text);
+    if (childFever) {
+      activeCase.safetyGate = childFever.kind;
       activeCase.transcript.push({ role: 'user', text });
-      activeCase.urgent = true;
-      activeCase.urgentMessage = orientation.message;
-      activeCase.comparison = null;
-      activeCase.transcript.push({ role: 'agent', text: orientation.message });
-      return complete({ urgent: true, message: orientation.message, source: 'safety' });
+      activeCase.transcript.push({ role: 'agent', text: childFever.question, field: childFever.kind });
+      return complete({ safety: { kind: childFever.kind }, question: childFever.question, message: childFever.question, source: 'safety' });
     }
 
     const replayingPendingTurn = activeCase.pendingRetryText === text;
@@ -76,6 +87,22 @@ export async function sendMessage(caseId, text, { turnId } = {}) {
     }
     throw error;
   }
+}
+
+function stopForUrgency(activeCase, text, message) {
+  activeCase.transcript.push({ role: 'user', text });
+  activeCase.urgent = true;
+  activeCase.urgentMessage = message;
+  activeCase.comparison = null;
+  activeCase.safetyGate = null;
+  activeCase.transcript.push({ role: 'agent', text: message });
+  return { urgent: true, message, source: 'safety' };
+}
+
+function presentSafetyQuestion(activeCase, text, safety) {
+  activeCase.transcript.push({ role: 'user', text });
+  activeCase.transcript.push({ role: 'agent', text: safety.question, field: 'child_fever' });
+  return { safety: { kind: 'child_fever' }, question: safety.question, message: safety.question, source: 'safety' };
 }
 
 async function qvacFlow(activeCase, userMessage, retryingQvac) {
@@ -154,7 +181,14 @@ function presentComparison(activeCase, specialty, source) {
     specialty,
     specialtyName,
     rows,
-    explanation: { source, text }
+    explanation: { source, text },
+    estimate: {
+      source: 'demo',
+      generatedAt: new Date().toISOString(),
+      visitType: 'Consulta ambulatoria inicial',
+      exclusions: ['Medicamentos, exámenes y procedimientos', 'Deducibles, límites o autorizaciones que puedan existir en una póliza real'],
+      confirmation: 'Para confirmar una cobertura real, el hospital y la aseguradora deben validar la consulta y el beneficio vigente.'
+    }
   };
 }
 

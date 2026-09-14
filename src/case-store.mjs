@@ -21,6 +21,7 @@ export function createCaseState(planId) {
     planId,
     transcript: [],
     urgent: false,
+    safetyGate: null,
     comparison: null,
     questionsAsked: 0,
     askedFields: new Set(),

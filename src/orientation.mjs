@@ -2,7 +2,7 @@ import { specialtyDefinitions } from './catalog.mjs';
 
 export function analyzeContext(text) {
   const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const urgent = /pecho|respirar|desmayo|inconscien|sangrado|convulsion|paralisis|suicid/.test(normalized);
+  const urgent = /pecho|respirar|desmayo|inconscien|sangrado|convulsion|paralisis|suicid|cuello\s+rigid|labios?\s+(?:azules?|morados?)|no\s+(?:puede|quiere)\s+(?:beber|tomar)|vomita\s+todo|dificil\s+de\s+despertar/.test(normalized);
   const age = extractAge(normalized);
   const pregnancy = extractPregnancy(normalized);
   const symptomSpecialty = Object.entries(specialtyDefinitions).find(([, definition]) => definition.keywords.some(keyword => normalized.includes(keyword)))?.[0] ?? null;

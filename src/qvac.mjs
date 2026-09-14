@@ -38,22 +38,26 @@ export async function decideAction({ plan, transcript, toolResults, questionsAsk
     const history = transcript.map(message => `${message.role === 'user' ? 'Paciente' : 'Agente'}: ${message.text}`).join('\n');
     const tools = toolResults.map(toolResult => `Herramienta ${toolResult.tool}: ${JSON.stringify(toolResult.result)}`).join('\n');
     const remaining = Math.max(0, maxQuestions - questionsAsked);
-    const response = await fetch(`${base}/chat/completions`, {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await fetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(20000),
       body: JSON.stringify({
         model: 'copago', stream: false, max_tokens: 32, temperature: 0.1, reasoning_budget: 0, remove_thinking_from_context: true,
         messages: [
-          { role: 'system', content: `Return exactly one line and no explanation. Formats: COMPARE|specialty, ASK|field, CATALOG, COVERAGE. Specialties: ${Object.keys(specialties).join(', ')}. Fields: ${QUESTION_FIELDS.join(', ')}. Spanish mappings: piel or picazón -> dermatology; estómago or acidez -> gastro; rodilla or articulación -> trauma; child without specific symptom -> pediatrics; pregnancy without specific symptom -> gyn. If symptoms identify a specialty, return COMPARE with its specialty. Never ask for information already present. Example input: Paciente: Tengo picazón en la piel desde hace tres días. Example output: COMPARE|dermatology. Plan: ${plan}. Questions: ${questionsAsked}/${maxQuestions}; remaining: ${remaining}. Catalog: ${specialtyList}. /no_think` },
+          { role: 'system', content: `Return exactly one line and no explanation. Formats: COMPARE|specialty, ASK|field, CATALOG, COVERAGE. Specialties: ${Object.keys(specialties).join(', ')}. Fields: ${QUESTION_FIELDS.join(', ')}. Spanish mappings: piel or picazón -> dermatology; estómago or acidez -> gastro; rodilla or articulación -> trauma; child with fever after a completed safety check -> pediatrics; pregnancy without specific symptom -> gyn. If symptoms identify a specialty, return COMPARE with its specialty. Never ask for information already present. Example input: Paciente: Tengo picazón en la piel desde hace tres días. Example output: COMPARE|dermatology. Plan: ${plan}. Questions: ${questionsAsked}/${maxQuestions}; remaining: ${remaining}. Catalog: ${specialtyList}. ${attempt ? 'Your previous answer was invalid. Reply now using exactly one permitted format.' : ''} /no_think` },
           { role: 'user', content: `Historial:\n${history || '(vacío)'}\n${tools ? `Herramientas consultadas:\n${tools}\n` : ''}Opción:` }
         ]
       })
     });
-    if (!response.ok) return failure(response.status >= 500 ? 'unavailable' : 'error');
-    const body = await response.json();
-    const content = body.choices?.[0]?.message?.content?.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-    return parseDecision(content);
+      if (!response.ok) return failure(response.status >= 500 ? 'unavailable' : 'error');
+      const body = await response.json();
+      const content = body.choices?.[0]?.message?.content?.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      const decision = parseDecision(content);
+      if (decision.action !== 'failure' || decision.reason !== 'invalid_response' || attempt === 1) return decision;
+    }
+    return failure('invalid_response');
   } catch (error) {
     return failure(error?.name === 'TimeoutError' ? 'timeout' : 'unavailable');
   }

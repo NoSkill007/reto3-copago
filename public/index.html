@@ -1,12 +1,57 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Claro · Tu cobertura, más clara</title><link rel="icon" href="data:,"><link rel="stylesheet" href="/style.css"></head>
-<body><header><a class="brand" href="/">claro<span>salud, sin sorpresas</span></a><div class="badges"><span class="badge">Panamá · USD</span><span class="badge demo">DEMO · DATOS FICTICIOS</span></div></header>
-<main><section class="intro"><div><h1>Tu salud primero.<br><span>Tu bolsillo, informado.</span></h1><p class="lead">Explora una especialidad y compara el gasto estimado de una consulta con datos ficticios.</p></div><aside><p>Más claridad.<br>Mejores decisiones.</p><small>Procesamiento local y privado</small></aside></section>
-<div class="workspace"><section class="panel conversation"><div class="panel-heading"><div><h2>Conversemos sobre tu consulta</h2><p>Orientación inicial · No es un diagnóstico</p></div><button id="restart" type="button" class="ghost-btn">Reiniciar caso</button></div>
-<form id="form"><label>Tu plan de seguro</label><div id="plan-toggle" class="plan-toggle" role="group" aria-label="Tu plan de seguro"></div><div id="plan-conditions" class="plan-conditions" aria-live="polite"></div><div id="messages" aria-live="polite"><div class="message">Hola, soy tu asistente de cobertura. Cuéntame qué molestias tienes y te ayudaré a explorar una especialidad y su gasto estimado.</div></div>
-<label for="symptoms">¿Qué molestias tienes tú, tu hijo/a o durante tu embarazo?</label><textarea id="symptoms" minlength="5" maxlength="2000" required placeholder="Por ejemplo: tengo picazón en la piel desde hace unos días…"></textarea>
-<div class="examples"><button type="button" data-example="Tengo picazón en la piel">Picazón en la piel</button><button type="button" data-example="Tengo molestias en la rodilla">Molestia de rodilla</button><button type="button" data-example="Tengo acidez de estómago">Acidez</button><button type="button" data-example="Mi hijo de 5 años tiene fiebre">Fiebre en un niño</button><button type="button" data-example="Estoy embarazada y tengo molestias">Molestias en el embarazo</button></div>
-<button class="primary" id="submit" type="submit">Explorar mi cobertura</button><p id="error" role="alert"></p></form><div class="privacy">Tus síntomas se procesan en esta computadora. Los casos vencen tras 30 minutos y no se escriben en disco.</div></section>
-<section class="panel results"><div class="panel-heading"><div><h2>Tus opciones, en claro</h2><p>Compara el gasto de una consulta</p></div></div><div id="results" aria-live="polite"><div class="empty"><h3>Tu comparación empieza aquí</h3><p>Selecciona tu plan y cuéntanos qué sientes.<br>Verás el desglose de cada hospital.</p><div class="mini-steps"><span>Especialidad</span><span>Cobertura</span><span>Tu gasto</span></div></div></div></section></div>
-<section class="meta-row"><div class="meta-card"><strong>Una estimación con cuentas claras</strong><p>Solo consultas ambulatorias. Sin deducible, sin límite anual y sin autorización previa. Exámenes, medicamentos y procedimientos se cotizan aparte.</p></div><div class="status-pill" data-state="loading" role="status" aria-live="polite"><span class="status-dot" id="status-dot" aria-hidden="true"></span><div class="status-text"><strong id="status">Preparando tu asistente de cobertura…</strong><small id="device">Tus datos se procesan de forma privada en esta computadora.</small></div><button id="refresh" type="button" class="ghost-btn">Actualizar estado</button></div></section>
-</main><footer>claro · Panamá</footer><script type="module" src="/app.js"></script></body></html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Estimador ilustrativo de copago para consultas ambulatorias en Panamá.">
+  <title>Claro · Estimador de copago</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Ir al contenido principal</a>
+  <header>
+    <a class="brand" href="/" aria-label="Claro, volver al inicio">claro <span>ESTIMADOR DE COPAGO</span></a>
+    <div class="badges"><span class="badge">Panamá</span><span class="badge demo">DEMO · DATOS FICTICIOS</span><button id="restart" type="button" class="ghost-btn restart-btn">Comenzar de nuevo</button></div>
+  </header>
+  <main id="main-content" tabindex="-1">
+    <section class="intro" aria-labelledby="page-title">
+      <div>
+        <h1 id="page-title">Entiende tu cobertura <span>antes de atenderte.</span></h1>
+        <p class="lead">Cuéntanos tus molestias. Tu asistente te ayuda a explorar una especialidad y comparar el gasto estimado de una consulta en hospitales ficticios de la red.</p>
+      </div>
+      <aside aria-label="Información de seguridad"><p>Primero, tu seguridad.</p><small>Si hay una posible urgencia, detenemos la estimación para orientarte a buscar atención.</small></aside>
+    </section>
+
+    <div class="workspace">
+      <section class="panel conversation" aria-labelledby="assistant-title">
+        <div class="panel-heading"><div><h2 id="assistant-title">Tu asistente de cobertura</h2><p>Orientación ilustrativa, no diagnóstico médico</p></div></div>
+        <div id="messages" aria-live="polite" aria-relevant="additions text"></div>
+        <form id="form" novalidate>
+          <fieldset class="plan-fieldset"><legend>1. Elige tu plan</legend><div id="plan-toggle" class="plan-toggle"></div></fieldset>
+          <div id="plan-conditions" class="plan-conditions" aria-live="polite"></div>
+          <label for="symptoms">2. Cuéntame qué sientes</label>
+          <textarea id="symptoms" maxlength="2000" aria-describedby="symptoms-help privacy-note" placeholder="Por ejemplo: Tengo picazón en la piel desde hace tres días"></textarea>
+          <p class="field-help" id="symptoms-help">No incluyas tu nombre, cédula, póliza u otros datos personales.</p>
+          <div class="examples" aria-label="Ejemplos de molestias"><button type="button" data-example="Tengo picazón en la piel">Picazón en la piel</button><button type="button" data-example="Tengo molestias en la rodilla">Molestia de rodilla</button><button type="button" data-example="Tengo acidez de estómago">Acidez</button><button type="button" data-example="Mi hijo de 5 años tiene fiebre">Fiebre en un niño</button><button type="button" data-example="Estoy embarazada y tengo molestias">Molestias en el embarazo</button></div>
+          <button class="primary" id="submit" type="submit">Explorar mi cobertura</button>
+          <p id="error" role="alert"></p>
+        </form>
+        <div class="privacy" id="privacy-note">Tus síntomas se procesan en esta computadora. Los casos vencen tras 30 minutos y no se escriben en disco.</div>
+      </section>
+
+      <section class="panel results" aria-labelledby="options-title">
+        <div class="panel-heading"><div><h2 id="options-title">Tus opciones, en claro</h2><p>Compara el gasto de una consulta</p></div></div>
+        <div id="results" aria-live="polite"><div class="empty"><h3>Tu comparación empieza aquí</h3><p>Selecciona tu plan y cuéntanos qué sientes.<br>Verás el desglose de cada hospital.</p><div class="mini-steps"><span>Seguridad</span><span>Especialidad</span><span>Cobertura</span><span>Tu gasto</span></div></div></div>
+      </section>
+    </div>
+
+    <section class="meta-row" aria-label="Información de la estimación">
+      <div class="meta-card"><strong>Una estimación con cuentas claras</strong><p>Solo consultas ambulatorias. Los datos, planes y hospitales son ficticios; no son una cotización ni una confirmación de cobertura. Medicamentos, exámenes y procedimientos se cotizan aparte.</p></div>
+      <div class="status-pill" data-state="loading" role="status" aria-live="polite"><span class="status-dot" id="status-dot" aria-hidden="true"></span><div class="status-text"><strong id="status">Preparando tu asistente de cobertura…</strong><small id="device">Tus datos se procesan de forma privada en esta computadora.</small></div><button id="refresh" type="button" class="ghost-btn">Actualizar estado</button></div>
+    </section>
+  </main>
+  <footer>claro · Panamá · Demo educativa</footer>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

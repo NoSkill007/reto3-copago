@@ -18,8 +18,10 @@ La orientación de demostración usa un catálogo pequeño; las señales potenci
 - Si se agotan cinco preguntas sin información suficiente, explicar qué sigue incierto y ofrecer comparar una consulta inicial apropiada para la edad y el contexto, sin afirmar una especialidad definitiva.
 - Ante una posible urgencia, interrumpir la comparación de precios, incluso si todavía no se agotaron las preguntas.
 
-## Diferencia pendiente de implementar
+## Estado y límites de integración
 
-La versión inicial selecciona la especialidad con reglas y usa QVAC solamente para redactar una explicación. Falta implementar la conducción conversacional y consulta de herramientas por QVAC descritas arriba.
+QVAC conduce la conversación y elige las acciones permitidas; el cálculo de cobertura se mantiene determinista. Antes de QVAC, un guardarraíl de seguridad puede interrumpir una posible urgencia o solicitar una comprobación de señales de alarma ante fiebre infantil. Esta interrupción no es una orientación clínica ni un diagnóstico.
+
+Los datos de beneficios siguen siendo sintéticos. Para convertir la estimación en una cotización vinculante faltan accesos autorizados a elegibilidad, red, proveedor, tipo de consulta, deducible, autorizaciones y vigencia de la póliza. La aplicación no debe afirmar que tiene esos datos ni ofrecer agendamiento hasta que exista esa integración.
 
 La selección automática de GPU se configura sin main-gpu. El dispositivo real no puede deducirse de la disponibilidad de la API: verificar registros del runtime antes de afirmarlo.

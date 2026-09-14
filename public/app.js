@@ -10,6 +10,7 @@ let selectedPlan;
 let pendingRecovery;
 let awaitingReply = false;
 let caseToken = 0;
+let latestComparison;
 const emptyResults = byId('results').innerHTML;
 
 async function fetchJson(path, options) {
@@ -58,6 +59,7 @@ async function beginCase() {
   const previousCloseToken = caseCloseToken;
   awaitingReply = false;
   pendingRecovery = undefined;
+  latestComparison = undefined;
   byId('error').textContent = '';
   byId('results').innerHTML = emptyResults;
   byId('messages').innerHTML = '<div class="message">Hola, soy tu asistente de cobertura. Cuéntame qué molestias tienes y te ayudaré a explorar una especialidad y su gasto estimado.</div>';
@@ -96,14 +98,18 @@ function restoreSubmitLabel() {
 }
 
 function renderComparison(result) {
+  latestComparison = result;
   const heading = `Especialidad sugerida: ${escapeHtml(result.specialtyName)}`;
   const hospitals = result.rows.map((hospital, index) => `
     <article class="hospital ${index === 0 && hospital.covered ? 'best' : ''}">
       <span class="tag">${!hospital.covered ? 'FUERA DE RED · SIN COBERTURA' : index === 0 ? 'MENOR GASTO EN TU RED' : 'EN TU RED'}</span>
       <div class="hospital-top"><div><h3>${escapeHtml(hospital.name)}</h3><small>${escapeHtml(hospital.area)}</small></div><div class="patient-cost"><div class="price">${money(hospital.patient)}</div><small>Tu gasto estimado</small></div></div>
       <div class="breakdown"><span>Tarifa de consulta</span><span>${money(hospital.rate)}</span><span>Copago fijo</span><span>${money(hospital.copay)}</span><span>Coaseguro sobre saldo</span><span>${money(hospital.coinsurance)}</span><span>Aporta el seguro</span><span>${money(hospital.insurer)}</span></div>
+      ${hospital.covered ? `<button type="button" class="secondary choose-hospital" data-select-hospital="${escapeHtml(hospital.id)}" aria-label="Elegir ${escapeHtml(hospital.name)}">Elegir esta opción</button>` : ''}
     </article>`).join('');
-  byId('results').innerHTML = `<div class="summary"><h3>${heading}</h3><div>${escapeHtml(result.explanation.text)}</div><span class="source">${ASSISTANT_SOURCE_LABEL}</span></div>${hospitals}<p class="notice">El gasto estimado incluye copago y coaseguro. Fuera de red pagarías la tarifa completa. Esta orientación es ilustrativa y no reemplaza la evaluación de un profesional.</p>`;
+  const generatedAt = result.estimate?.generatedAt ? new Intl.DateTimeFormat('es-PA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(result.estimate.generatedAt)) : '';
+  const exclusions = result.estimate?.exclusions?.map(escapeHtml).join(' · ') ?? '';
+  byId('results').innerHTML = `<div class="summary"><h3>${heading}</h3><div>${escapeHtml(result.explanation.text)}</div><span class="source">${ASSISTANT_SOURCE_LABEL}</span></div><div class="estimate-context"><strong>Estimación ilustrativa</strong><span>${escapeHtml(result.estimate?.visitType ?? 'Consulta ambulatoria')}</span><span>${generatedAt ? `Actualizada: ${escapeHtml(generatedAt)}` : ''}</span></div>${hospitals}<div id="hospital-choice" aria-live="polite"></div><details class="estimate-help"><summary>Antes de usar esta estimación</summary><p>${escapeHtml(result.estimate?.confirmation ?? 'Confirma la cobertura con el hospital y la aseguradora antes de atenderte.')}</p><p>No incluye: ${exclusions || 'medicamentos, exámenes y procedimientos'}.</p></details><p class="notice">El gasto estimado incluye copago y coaseguro. Fuera de red pagarías la tarifa completa. Esta orientación es ilustrativa y no reemplaza la evaluación de un profesional.</p>`;
 }
 
 function renderRecovery(result) {
@@ -115,6 +121,13 @@ function renderRecovery(result) {
       <div class="recovery-actions"><button type="button" class="primary compact" data-recovery="retry">Volver a intentarlo</button></div>
       <small>Necesitamos confirmar la orientación antes de mostrar un gasto estimado.</small>
     </div>`;
+}
+
+function renderHospitalChoice(hospitalId) {
+  const hospital = latestComparison?.rows.find(candidate => candidate.id === hospitalId && candidate.covered);
+  if (!hospital) return;
+  byId('hospital-choice').innerHTML = `<section class="hospital-choice"><h3>Elegiste ${escapeHtml(hospital.name)}</h3><p>Tu gasto estimado para esta consulta es ${money(hospital.patient)}.</p><ol><li>Confirma que el profesional y la consulta estén dentro de tu red.</li><li>Consulta directamente con el canal oficial del hospital para agendar.</li><li>Antes de atenderte, verifica el beneficio vigente con tu aseguradora.</li></ol><p class="choice-note">Esta demo no está conectada al sistema de citas ni a beneficios reales.</p></section>`;
+  byId('hospital-choice').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID() } = {}) {
@@ -140,6 +153,12 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
       pendingRecovery = undefined;
       addMessage(result.message, 'agent');
       byId('results').innerHTML = `<div class="urgent"><strong>Prioriza tu atención</strong><p>${escapeHtml(result.message)}</p></div>`;
+      return;
+    }
+    if (result.safety) {
+      pendingRecovery = undefined;
+      addMessage(result.question, 'agent');
+      byId('results').innerHTML = `<div class="safety-check" role="status"><span class="state-label">Comprobación de seguridad</span><h3>Antes de revisar cobertura</h3><p>${escapeHtml(result.question)}</p><small>Esta pregunta no es un diagnóstico. Si te preocupa el estado de la persona, busca atención médica de inmediato.</small></div>`;
       return;
     }
     if (result.recovery) {
@@ -179,11 +198,12 @@ byId('plan-toggle').addEventListener('click', event => {
 
 byId('results').addEventListener('click', event => {
   const action = event.target.closest('[data-recovery]')?.dataset.recovery;
-  if (!action || !pendingRecovery) return;
-  if (action === 'retry') submitTurn(pendingRecovery.text, { appendUser: false, ...(pendingRecovery.turnId ? { turnId: pendingRecovery.turnId } : {}) });
+  if (action === 'retry' && pendingRecovery) submitTurn(pendingRecovery.text, { appendUser: false, ...(pendingRecovery.turnId ? { turnId: pendingRecovery.turnId } : {}) });
+  const hospitalId = event.target.closest('[data-select-hospital]')?.dataset.selectHospital;
+  if (hospitalId) renderHospitalChoice(hospitalId);
 });
 
-byId('restart').addEventListener('click', beginCase);
+byId('restart')?.addEventListener('click', beginCase);
 byId('refresh').addEventListener('click', refreshStatus);
 document.querySelectorAll('[data-example]').forEach(button => button.addEventListener('click', () => {
   byId('symptoms').value = button.dataset.example;

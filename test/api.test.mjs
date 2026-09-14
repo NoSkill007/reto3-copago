@@ -224,6 +224,16 @@ test('QVAC indisponible ofrece recuperación sin orientar ni mostrar precios', a
   });
 });
 
+test('el agente repara una respuesta malformada aislada antes de detener la orientación', async t => {
+  mockQvac(['formato incorrecto', { action: 'compare', specialty: 'dermatology' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    assert.equal(result.body.specialty, 'dermatology');
+    assert.equal(result.body.recovery, undefined);
+  });
+});
+
 test('una posible urgencia interrumpe la comparación desde el primer mensaje', async t => {
   mockQvac([{ action: 'compare', specialty: 'general' }]);
   await withServer(t, async base => {
@@ -300,11 +310,16 @@ test('una urgencia previa en el caso bloquea permanentemente mensajes posteriore
   });
 });
 
-test('regresión: pediatría en Esencial ordena La Ceiba primero y deja Canal fuera de red', async t => {
+test('la fiebre en un niño se revisa por seguridad antes de estimar pediatría', async t => {
   mockQvac([{ action: 'compare', specialty: 'pediatrics' }]);
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Mi hijo de 5 años tiene fiebre');
+    const first = await sendMessage(base, created.body.caseId, 'Mi hijo de 5 años tiene fiebre');
+    assert.equal(first.body.safety?.kind, 'child_fever');
+    assert.match(first.body.question, /dificultad para respirar/i);
+    assert.equal(first.body.rows, undefined);
+
+    const result = await sendMessage(base, created.body.caseId, 'No, no tiene ninguna de esas señales.');
     assert.equal(result.body.specialty, 'pediatrics');
     const ceiba = result.body.rows.find(r => r.id === 'ceiba');
     const bahia = result.body.rows.find(r => r.id === 'bahia');
@@ -345,8 +360,31 @@ test('un reintento de red con el mismo turno devuelve el resultado sin mutar el 
   });
 });
 
-test('un turno de recuperación no queda cacheado y permite reintentar QVAC', async t => {
-  mockQvac(['INVALID', { action: 'compare', specialty: 'dermatology' }]);
+test('una señal de alarma durante la revisión de fiebre infantil bloquea los precios', async t => {
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const first = await sendMessage(base, created.body.caseId, 'Mi hijo de 5 años tiene fiebre');
+    assert.equal(first.body.safety?.kind, 'child_fever');
+    const result = await sendMessage(base, created.body.caseId, 'Le cuesta respirar y no quiere tomar líquidos.');
+    assert.equal(result.body.urgent, true);
+    assert.equal(result.body.rows, undefined);
+    assert.match(result.body.message, /urgencias/i);
+  });
+});
+
+test('toda estimación declara que es una demostración y cuándo se generó', async t => {
+  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    assert.equal(result.body.estimate.source, 'demo');
+    assert.match(result.body.estimate.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.match(result.body.estimate.exclusions.join(' '), /medicamentos/i);
+  });
+});
+
+test('dos respuestas inválidas permiten reintentar el turno sin cachearlo', async t => {
+  mockQvac(['INVALID', 'INVALID', { action: 'compare', specialty: 'dermatology' }]);
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
     const turnId = 'turno-recuperable';
