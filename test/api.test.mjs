@@ -208,7 +208,7 @@ test('respuesta malformada (no JSON) se rechaza sin precios', async t => {
   });
 });
 
-test('QVAC indisponible ofrece recuperación sin activar reglas automáticamente', async t => {
+test('QVAC indisponible ofrece recuperación sin orientar ni mostrar precios', async t => {
   const realFetch = globalThis.fetch;
   mock.method(globalThis, 'fetch', async (url, init) => {
     if (!String(url).startsWith(QVAC_BASE)) return realFetch(url, init);
@@ -218,12 +218,8 @@ test('QVAC indisponible ofrece recuperación sin activar reglas automáticamente
     const created = await startCase(base, 'esencial');
     const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
     assert.equal(result.body.recovery.reason, 'unavailable');
-    assert.equal(result.body.recovery.canUseRules, true);
+    assert.equal(result.body.recovery.canUseRules, undefined);
     assert.equal(result.body.rows, undefined);
-
-    const rulesResult = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel', 'rules');
-    assert.equal(rulesResult.body.explanation.source, 'rules');
-    assert.equal(rulesResult.body.specialty, 'dermatology');
   });
 });
 
@@ -238,19 +234,7 @@ test('una posible urgencia interrumpe la comparación desde el primer mensaje', 
   });
 });
 
-test('el modo de reglas usa todo el historial del paciente, no solo el último mensaje', async t => {
-  mockQvac([{ action: 'ask', field: 'age' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const first = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(first.body.field, 'age');
-    const second = await sendMessage(base, created.body.caseId, 'Tengo 30 años', 'rules');
-    assert.equal(second.body.explanation.source, 'rules');
-    assert.equal(second.body.specialty, 'dermatology');
-  });
-});
-
-test('un mensaje posterior no urgente que degrada a reglas no revienta si el historial ya tenía una urgencia', async t => {
+test('un mensaje posterior no urgente no revienta si el historial ya tenía una urgencia', async t => {
   mockQvac([{ action: 'no_permitida' }]);
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
@@ -290,13 +274,11 @@ test('permite hasta cinco preguntas de seguimiento y bloquea un sexto intento si
       assert.equal(result.body.questionsRemaining, 5 - i);
       result = await sendMessage(base, created.body.caseId, `Respuesta ${i}`);
     }
-    // El sexto intento del modelo de seguir preguntando se rechaza fuera del modelo.
+    // El sexto intento del modelo se rechaza y no produce estimación.
     assert.equal(result.status, 200);
     assert.equal(result.body.question, undefined);
-    assert.equal(result.body.uncertain, true);
-    assert.equal(result.body.specialty, 'general');
-    assert.equal(result.body.explanation.source, 'rules');
-    assert.ok(result.body.rows.length > 0);
+    assert.equal(result.body.recovery.reason, 'needs_more_context');
+    assert.equal(result.body.rows, undefined);
   });
 });
 
@@ -350,24 +332,6 @@ test('regresión: ginecología/obstetricia en Plus calcula los tres hospitales e
   });
 });
 
-test('modo de reglas orienta a pediatría cuando el paciente es un niño y no hay síntoma más específico', async t => {
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Mi hijo tiene 5 años y está decaído', 'rules');
-    assert.equal(result.body.explanation.source, 'rules');
-    assert.equal(result.body.specialty, 'pediatrics');
-  });
-});
-
-test('modo de reglas orienta a ginecología/obstetricia cuando hay embarazo y no hay síntoma más específico', async t => {
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Estoy embarazada y tengo molestias generales', 'rules');
-    assert.equal(result.body.explanation.source, 'rules');
-    assert.equal(result.body.specialty, 'gyn');
-  });
-});
-
 test('un reintento de red con el mismo turno devuelve el resultado sin mutar el caso', async t => {
   mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
   await withServer(t, async base => {
@@ -405,46 +369,6 @@ test('solicitudes simultáneas con el mismo turno comparten una sola mutación',
   });
 });
 
-test('modo de reglas pide un dato faltante en vez de inventar medicina general', async t => {
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo molestias generales', 'rules');
-    assert.equal(result.body.field, 'details');
-    assert.equal(result.body.source, 'rules');
-    assert.equal(result.body.specialty, undefined);
-    assert.equal(result.body.rows, undefined);
-  });
-});
-
-test('un saludo o mensaje vago mantiene pendiente la molestia principal', async t => {
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Hola, necesito ayuda', 'rules');
-    assert.equal(result.body.field, 'details');
-  });
-});
-
-test('las respuestas cortas se vinculan a la pregunta previa y no se repiten', async t => {
-  await withServer(t, async base => {
-    const childCase = await startCase(base, 'esencial');
-    let result = await sendMessage(base, childCase.body.caseId, 'Tengo molestias generales', 'rules');
-    assert.equal(result.body.field, 'details');
-    result = await sendMessage(base, childCase.body.caseId, 'Fiebre desde ayer', 'rules');
-    assert.equal(result.body.field, 'age');
-    result = await sendMessage(base, childCase.body.caseId, '5', 'rules');
-    assert.equal(result.body.specialty, 'pediatrics');
-
-    const adultCase = await startCase(base, 'esencial');
-    result = await sendMessage(base, adultCase.body.caseId, 'Tengo molestias generales', 'rules');
-    result = await sendMessage(base, adultCase.body.caseId, 'Molestias leves', 'rules');
-    assert.equal(result.body.field, 'age');
-    result = await sendMessage(base, adultCase.body.caseId, '30', 'rules');
-    assert.equal(result.body.field, 'pregnancy');
-    result = await sendMessage(base, adultCase.body.caseId, 'No', 'rules');
-    assert.equal(result.body.field, 'duration');
-  });
-});
-
 test('una duración expresada como "desde hace X años" no se confunde con la edad del paciente', async t => {
   mockQvac([{ action: 'ask', field: 'age' }]);
   await withServer(t, async base => {
@@ -452,14 +376,6 @@ test('una duración expresada como "desde hace X años" no se confunde con la ed
     const result = await sendMessage(base, created.body.caseId, 'Tengo molestias generales desde hace 3 años');
     assert.equal(result.body.field, 'age');
     assert.equal(result.body.specialty, undefined);
-  });
-});
-
-test('el embarazo no fuerza ginecología cuando el síntoma descrito es de otra especialidad', async t => {
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Estoy embarazada y tengo picazón en la piel', 'rules');
-    assert.equal(result.body.specialty, 'dermatology');
   });
 });
 

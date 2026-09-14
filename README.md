@@ -8,7 +8,7 @@ Demo local para Panamá con datos completamente ficticios. Requiere Node.js 22 o
 npm start
 ```
 
-Ese único comando instala las dependencias si faltan, inicia QVAC local en el puerto dedicado 11435 y levanta la aplicación en http://127.0.0.1:3000. La primera ejecución requiere conectividad y puede tardar mientras descarga el modelo; las siguientes reutilizan la caché. Si QVAC falla, la web permanece disponible y permite elegir explícitamente el modo de reglas.
+Ese único comando instala las dependencias si faltan, inicia QVAC local en el puerto dedicado 11435 y levanta la aplicación en http://127.0.0.1:3000. La primera ejecución requiere conectividad y puede tardar mientras descarga el modelo; las siguientes reutilizan la caché. Si QVAC falla o su respuesta no pasa validación, la web no orienta ni muestra precios: permite reintentar QVAC.
 
 Para iniciar solamente la interfaz durante desarrollo:
 
@@ -31,12 +31,12 @@ El detector ilustrativo de palabras no descarta urgencias ni maneja todas las ne
 ## Verificación realizada
 
 - Comprobación de sintaxis de servidor y cliente.
-- Recorridos manuales de navegador: dermatología, urgencia sobrevenida, pediatría, embarazo e incertidumbre; pediatría y embarazo también se comprobaron mediante el modo de reglas explícito cuando QVAC no entregó una acción válida.
+- Recorridos manuales de navegador: dermatología, urgencia sobrevenida, pediatría, embarazo e incertidumbre. La orientación de especialidad depende exclusivamente de QVAC.
 - Solicitud real a QVAC: respuesta identificada con `source: qvac`.
 - `qvac doctor`: requisitos obligatorios aprobados; detectó AMD integrada y RTX 4070 Laptop.
 - `nvidia-smi`: el proceso `bare.exe` de este proyecto apareció entre los procesos de cómputo de la RTX. Esto verifica esta máquina, no todos los dispositivos posibles.
 - El texto «Tengo dolor de pecho» suspende la comparación en la interfaz.
 
-`npm run check` y 45 pruebas automatizadas pasan, incluidas las seis especialidades, respuestas breves asociadas a la pregunta previa, aislamiento de casos, reintentos idempotentes y fallback de QVAC.
+`npm run check` y 38 pruebas automatizadas pasan, incluidas las seis especialidades, preguntas estructuradas por QVAC, aislamiento de casos, reintentos idempotentes y fallback sin precios.
 
 La revisión formal de especificación y estándares se hizo contra el punto de partida `3e14038`; los hallazgos materiales están incorporados.

@@ -3,7 +3,7 @@ import { orient } from './orientation.mjs';
 import { toolCatalog, toolCoverage, toolCompare } from './tools.mjs';
 import { decideAction } from './qvac.mjs';
 import { closeCaseState, createCaseState, getCaseState } from './case-store.mjs';
-import { captureFieldAnswer, followUpFor, nextRulesStep, uncertainStep } from './conversation.mjs';
+import { captureFieldAnswer, followUpFor } from './conversation.mjs';
 
 const MAX_TOOL_STEPS = 3;
 const MAX_QUESTIONS = 5;
@@ -20,12 +20,11 @@ export function startCase(planId, previousCaseId, previousCloseToken) {
   };
 }
 
-export async function sendMessage(caseId, text, { mode = 'qvac', turnId } = {}) {
+export async function sendMessage(caseId, text, { turnId } = {}) {
   const activeCase = getCaseState(caseId);
   if (typeof text !== 'string' || text.trim().length < 1 || text.length > 2000) throw new Error('Describe tu mensaje (1 a 2000 caracteres).');
-  if (!['qvac', 'rules'].includes(mode)) throw new Error('Modo de conversación inválido.');
-  if (activeCase.urgent) return { urgent: true, message: activeCase.urgentMessage, source: 'rules' };
-  const fingerprint = `${mode}\u0000${text}`;
+  if (activeCase.urgent) return { urgent: true, message: activeCase.urgentMessage, source: 'safety' };
+  const fingerprint = text;
   const cachedTurn = turnId && activeCase.turnResults.get(turnId);
   if (cachedTurn) {
     if (cachedTurn.fingerprint !== fingerprint) throw new Error('El identificador de turno no coincide con la solicitud.');
@@ -43,7 +42,7 @@ export async function sendMessage(caseId, text, { mode = 'qvac', turnId } = {}) 
   }
   const complete = result => {
     const safeResult = activeCase.urgent && !result.urgent
-      ? { urgent: true, message: activeCase.urgentMessage, source: 'rules' }
+      ? { urgent: true, message: activeCase.urgentMessage, source: 'safety' }
       : result;
     if (turnId) {
       activeCase.turnRequests.delete(turnId);
@@ -60,18 +59,12 @@ export async function sendMessage(caseId, text, { mode = 'qvac', turnId } = {}) 
     activeCase.urgentMessage = orientation.message;
     activeCase.comparison = null;
     activeCase.transcript.push({ role: 'agent', text: orientation.message });
-    return complete({ urgent: true, message: orientation.message, source: 'rules' });
+    return complete({ urgent: true, message: orientation.message, source: 'safety' });
   }
 
   const replayingPendingTurn = activeCase.pendingRetryText === text;
   const userMessage = { role: 'user', text };
   if (!replayingPendingTurn) captureFieldAnswer(activeCase.transcript, text, activeCase.fieldAnswers);
-  if (mode === 'rules') {
-    activeCase.pendingRetryText = null;
-    if (!replayingPendingTurn) activeCase.transcript.push(userMessage);
-    return complete(rulesFlow(activeCase));
-  }
-
   return complete(await qvacFlow(activeCase, userMessage, replayingPendingTurn));
 }
 
@@ -87,8 +80,7 @@ async function qvacFlow(activeCase, userMessage, retryingQvac) {
     }
     if (decision.action === 'ask') {
       if (activeCase.questionsAsked >= MAX_QUESTIONS) {
-        activeCase.transcript.push(userMessage);
-        return presentUncertain(activeCase, uncertainStep(activeCase.transcript, activeCase.askedFields, decision.field, activeCase.fieldAnswers));
+        return failQvacTurn(activeCase, userMessage, retryingQvac, 'needs_more_context');
       }
       const followUp = followUpFor(decision.field, transcript, activeCase.askedFields, activeCase.fieldAnswers);
       if (!followUp) return failQvacTurn(activeCase, userMessage, retryingQvac, 'invalid_response');
@@ -130,13 +122,6 @@ function hasToolResult(toolResults, tool) {
   return toolResults.some(result => result.tool === tool);
 }
 
-function rulesFlow(activeCase) {
-  const step = nextRulesStep(activeCase.transcript, activeCase.askedFields, activeCase.fieldAnswers);
-  if (step.action === 'compare') return presentComparison(activeCase, step.specialty, 'rules');
-  if (step.action === 'ask' && activeCase.questionsAsked < MAX_QUESTIONS) return presentQuestion(activeCase, step, 'rules');
-  return presentUncertain(activeCase, step.action === 'uncertain' ? step : uncertainStep(activeCase.transcript, activeCase.askedFields, step.field, activeCase.fieldAnswers));
-}
-
 function presentQuestion(activeCase, followUp, source) {
   activeCase.questionsAsked++;
   activeCase.askedFields.add(followUp.field);
@@ -150,28 +135,16 @@ function presentQuestion(activeCase, followUp, source) {
   };
 }
 
-function presentUncertain(activeCase, uncertainty) {
-  const missingText = uncertainty.missing.join(', ');
-  return presentComparison(activeCase, uncertainty.specialty, 'rules', {
-    uncertain: true,
-    missing: uncertainty.missing,
-    text: `No fue posible confirmar una especialidad porque todavía falta ${missingText}. La tabla compara una consulta inicial apropiada al contexto compartido; no es una especialidad definitiva.`
-  });
-}
-
-function presentComparison(activeCase, specialty, source, options = {}) {
+function presentComparison(activeCase, specialty, source) {
   const { specialtyName, rows } = toolCompare(activeCase.planId, specialty);
   activeCase.comparison = { specialty, rows };
-  const text = options.text ?? (source === 'qvac'
-    ? 'QVAC orientó la especialidad. La tabla usa exclusivamente el catálogo y el cálculo determinista del plan seleccionado.'
-    : 'Esta orientación usa reglas de demostración, sin IA. Los importes provienen exclusivamente del cálculo determinista del plan seleccionado.');
+  const text = 'QVAC orientó la especialidad. La tabla usa exclusivamente el catálogo y el cálculo determinista del plan seleccionado.';
   activeCase.transcript.push({ role: 'agent', text });
   return {
     specialty,
     specialtyName,
     rows,
-    explanation: { source, text },
-    ...(options.uncertain ? { uncertain: true, missing: options.missing } : {})
+    explanation: { source, text }
   };
 }
 
@@ -181,9 +154,10 @@ function recoveryResult(reason) {
     timeout: 'QVAC tardó demasiado en responder. No mostramos precios para este turno.',
     unavailable: 'QVAC no está disponible. No mostramos precios para este turno.',
     error: 'QVAC no pudo completar la solicitud. No mostramos precios para este turno.'
+    ,needs_more_context: 'QVAC necesita más contexto para orientar con seguridad. No mostramos precios para este turno; reformula el síntoma o reintenta.'
   };
   return {
-    recovery: { reason, canRetry: true, canUseRules: true },
+    recovery: { reason, canRetry: true },
     message: messages[reason] ?? messages.error,
     source: 'qvac'
   };

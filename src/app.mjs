@@ -37,9 +37,8 @@ export function createServer() {
         }
 
         if (!body || typeof body.caseId !== 'string' || typeof body.text !== 'string') return json(res, 400, { error: 'Falta el caso o el mensaje.' });
-        if (body.mode !== undefined && !['qvac', 'rules'].includes(body.mode)) return json(res, 400, { error: 'Modo de conversación inválido.' });
         if (body.turnId !== undefined && (typeof body.turnId !== 'string' || body.turnId.length > 100)) return json(res, 400, { error: 'Identificador de turno inválido.' });
-        try { return json(res, 200, await sendMessage(body.caseId, body.text, { mode: body.mode, turnId: body.turnId })); }
+        try { return json(res, 200, await sendMessage(body.caseId, body.text, { turnId: body.turnId })); }
         catch (err) { return json(res, err.message.startsWith('Caso no encontrado') ? 404 : 400, { error: err.message }); }
       }
 

@@ -1,7 +1,7 @@
 const byId = id => document.getElementById(id);
 const money = cents => new Intl.NumberFormat('es-PA', { style: 'currency', currency: 'USD' }).format(cents / 100);
 const escapeHtml = text => String(text).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
-const sourceLabel = source => source === 'qvac' ? 'Orientación coordinada por QVAC local' : 'Modo de reglas · sin IA';
+const sourceLabel = () => 'Orientación coordinada por QVAC local';
 
 let catalog;
 let caseId;
@@ -10,7 +10,6 @@ let selectedPlan;
 let pendingRecovery;
 let awaitingReply = false;
 let caseToken = 0;
-let conversationMode = 'qvac';
 const emptyResults = byId('results').innerHTML;
 
 async function fetchJson(path, options) {
@@ -59,7 +58,6 @@ async function beginCase() {
   const previousCloseToken = caseCloseToken;
   awaitingReply = false;
   pendingRecovery = undefined;
-  conversationMode = 'qvac';
   byId('error').textContent = '';
   byId('results').innerHTML = emptyResults;
   byId('messages').innerHTML = '<div class="message">Hola, soy tu asistente de cobertura. Cuéntame qué molestias tienes y te ayudaré a explorar una especialidad y su gasto estimado.</div>';
@@ -117,21 +115,18 @@ function renderRecovery(result) {
       <span class="state-label">Verificación detenida</span>
       <h3>No se generó ningún precio</h3>
       <p>${escapeHtml(result.message)}</p>
-      <div class="recovery-actions">
-        <button type="button" class="primary compact" data-recovery="retry">Reintentar con QVAC</button>
-        <button type="button" class="secondary" data-recovery="rules">Continuar con reglas</button>
-      </div>
-      <small>El modo de reglas usa el catálogo ficticio y cálculos deterministas, sin IA.</small>
+      <div class="recovery-actions"><button type="button" class="primary compact" data-recovery="retry">Reintentar con QVAC</button></div>
+      <small>Solo QVAC puede orientar la especialidad. No se generó ningún precio.</small>
     </div>`;
 }
 
-async function submitTurn(text, { mode = conversationMode, appendUser = true, turnId = crypto.randomUUID() } = {}) {
+async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID() } = {}) {
   if (awaitingReply || !text.trim() || !caseId) return;
   const token = caseToken;
   const requestCaseId = caseId;
   byId('error').textContent = '';
   awaitingReply = true;
-  byId('submit').textContent = mode === 'rules' ? 'Aplicando reglas…' : 'Consultando QVAC…';
+  byId('submit').textContent = 'Consultando QVAC…';
   if (appendUser) {
     addMessage(text, 'user');
     byId('symptoms').value = '';
@@ -141,7 +136,7 @@ async function submitTurn(text, { mode = conversationMode, appendUser = true, tu
     const result = await fetchJson('/api/case/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ caseId: requestCaseId, text, mode, turnId })
+      body: JSON.stringify({ caseId: requestCaseId, text, turnId })
     });
     if (token !== caseToken) return;
     if (result.urgent) {
@@ -188,9 +183,7 @@ byId('plan-toggle').addEventListener('click', event => {
 byId('results').addEventListener('click', event => {
   const action = event.target.closest('[data-recovery]')?.dataset.recovery;
   if (!action || !pendingRecovery) return;
-  if (action === 'rules') conversationMode = 'rules';
-  if (action === 'retry') conversationMode = 'qvac';
-  submitTurn(pendingRecovery.text, { mode: conversationMode, appendUser: false, ...(pendingRecovery.turnId ? { turnId: pendingRecovery.turnId } : {}) });
+  if (action === 'retry') submitTurn(pendingRecovery.text, { appendUser: false, ...(pendingRecovery.turnId ? { turnId: pendingRecovery.turnId } : {}) });
 });
 
 byId('restart').addEventListener('click', beginCase);

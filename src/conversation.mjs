@@ -59,38 +59,3 @@ export function followUpFor(field, transcript, askedFields, fieldAnswers) {
   if (alreadyKnown) return null;
   return { field, question: FOLLOW_UP_FIELDS[field].question };
 }
-
-export function nextRulesStep(transcript, askedFields, fieldAnswers) {
-  const context = conversationContext(transcript, fieldAnswers);
-  if (context.symptomSpecialty || context.pregnancy === true || (context.age !== null && context.age < 12)) {
-    return { action: 'compare', specialty: context.symptomSpecialty ? context.specialty : initialSpecialty(context) };
-  }
-  const field = QUESTION_FIELDS.find(candidate => followUpFor(candidate, transcript, askedFields, fieldAnswers));
-  return field ? { action: 'ask', ...followUpFor(field, transcript, askedFields, fieldAnswers) } : { action: 'uncertain', specialty: initialSpecialty(context), missing: missingLabels(context, askedFields) };
-}
-
-export function uncertainStep(transcript, askedFields, requestedField, fieldAnswers) {
-  const context = conversationContext(transcript, fieldAnswers);
-  const requested = QUESTION_FIELDS.includes(requestedField) ? [FOLLOW_UP_FIELDS[requestedField].label] : [];
-  return {
-    specialty: initialSpecialty(context),
-    missing: [...new Set([...requested, ...missingLabels(context, askedFields)])]
-  };
-}
-
-function initialSpecialty(context) {
-  if (context.age !== null && context.age < 12) return 'pediatrics';
-  if (context.pregnancy === true) return 'gyn';
-  return 'general';
-}
-
-function missingLabels(context, askedFields) {
-  const missing = [];
-  if (!context.detailsKnown) missing.push(FOLLOW_UP_FIELDS.details.label);
-  if (context.age === null && askedFields.has('age')) missing.push(FOLLOW_UP_FIELDS.age.label);
-  if (context.pregnancy === null && askedFields.has('pregnancy')) missing.push(FOLLOW_UP_FIELDS.pregnancy.label);
-  if (!context.durationKnown && askedFields.has('duration')) missing.push(FOLLOW_UP_FIELDS.duration.label);
-  if (!context.severityKnown && askedFields.has('severity')) missing.push(FOLLOW_UP_FIELDS.severity.label);
-  if (!context.impactKnown && askedFields.has('impact')) missing.push(FOLLOW_UP_FIELDS.impact.label);
-  return missing.length ? missing : ['el contexto necesario para orientar la especialidad'];
-}
