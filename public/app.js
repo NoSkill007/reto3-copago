@@ -16,8 +16,14 @@ function addMessage(text, role){
 
 async function beginCase(){
  const token=++caseToken;
+ // Un reinicio siempre gana sobre cualquier envío de mensaje en curso: se
+ // reactivan los controles ahora mismo, sin esperar a que esa respuesta
+ // tardía llegue (el guard de caseToken en el submit la descartará).
+ awaitingReply=false;
  $('error').textContent='';$('results').innerHTML=empty;$('messages').innerHTML='<div class="message">Hola, soy tu asistente de cobertura. Cuéntame qué molestias tienes y te ayudaré a explorar una especialidad y su gasto estimado.</div>';
  caseId=undefined;
+ [...$('form').querySelectorAll('select, textarea, button')].forEach(control => { control.disabled = false; });
+ $('submit').innerHTML='Explorar mi cobertura <span>→</span>';
  try{
   const response=await fetch('/api/case',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan:$('plan').value})});
   const result=await response.json();if(!response.ok)throw new Error(result.error);
@@ -28,6 +34,7 @@ async function beginCase(){
 
 function updatePlan(){$('plan-info').textContent=catalog.plans.find(p=>p.id===$('plan').value).description;beginCase();}
 $('plan').addEventListener('change',updatePlan);
+$('restart').addEventListener('click',beginCase);
 
 try{catalog=await fetch('/api/catalog').then(r=>r.json());$('plan').innerHTML=catalog.plans.map(p=>`<option value="${escape(p.id)}">${escape(p.name)}</option>`).join('');await updatePlan();}catch{$('error').textContent='No se pudo cargar el catálogo. Recarga la página.';}
 
@@ -43,6 +50,7 @@ function renderComparison(result){
 $('form').addEventListener('submit',async e=>{
  e.preventDefault();
  if(awaitingReply || !$('symptoms').value.trim() || !caseId) return;
+ const token=caseToken, requestCaseId=caseId;
  $('error').textContent='';awaitingReply=true;$('submit').disabled=true;$('submit').textContent='Consultando cobertura…';
  const text=$('symptoms').value;
  addMessage(text,'user');
@@ -50,13 +58,19 @@ $('form').addEventListener('submit',async e=>{
  const controls = [...$('form').querySelectorAll('select, textarea, button')];
  controls.forEach(control => { control.disabled = true; });
  try{
-  const response=await fetch('/api/case/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caseId,text})});
+  const response=await fetch('/api/case/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caseId:requestCaseId,text})});
   const result=await response.json();if(!response.ok)throw new Error(result.error);
+  // El caso pudo reiniciarse mientras esperábamos esta respuesta: descartarla
+  // para no mezclarla con la conversación nueva.
+  if(token!==caseToken) return;
   if(result.urgent){addMessage(result.message,'agent');$('results').innerHTML=`<div class="urgent"><strong>Prioriza tu atención</strong><p>${escape(result.message)}</p></div>`;return;}
   if(result.question){addMessage(result.question,'agent');if(typeof result.questionsAsked==='number')addMessage(`Pregunta ${result.questionsAsked} de 5`,'progress');return;}
   addMessage(result.explanation.text,'agent');
   renderComparison(result);
- }catch(error){$('error').textContent=error.message||'No se pudo consultar. Intenta de nuevo.';}
- finally{awaitingReply=false;controls.forEach(control => { control.disabled = false; });$('submit').innerHTML='Explorar mi cobertura <span>→</span>';$('symptoms').focus();status();}
+ }catch(error){if(token===caseToken) $('error').textContent=error.message||'No se pudo consultar. Intenta de nuevo.';}
+ finally{
+  if(token===caseToken){awaitingReply=false;controls.forEach(control => { control.disabled = false; });$('submit').innerHTML='Explorar mi cobertura <span>→</span>';$('symptoms').focus();}
+  status();
+ }
 });
 status();

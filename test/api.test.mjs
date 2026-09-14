@@ -318,6 +318,87 @@ test('la oferta de consulta inicial tras agotar preguntas usa el contexto de eda
   });
 });
 
+test('una urgencia sobrevenida tras mostrar una comparación retira los precios y bloquea el resto del caso', async t => {
+  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const first = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    assert.ok(first.body.rows.length > 0);
+    assert.equal(first.body.urgent, undefined);
+
+    const second = await sendMessage(base, created.body.caseId, 'Ahora tengo dolor de pecho');
+    assert.equal(second.body.urgent, true);
+    assert.equal(second.body.rows, undefined);
+    assert.match(second.body.message, /atención/i);
+
+    // La interrupción persiste: no se generan nuevas comparaciones ni se
+    // vuelve a consultar al modelo aunque el paciente siga escribiendo.
+    const third = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel otra vez');
+    assert.equal(third.body.urgent, true);
+    assert.equal(third.body.rows, undefined);
+  });
+});
+
+test('los casos concurrentes no comparten preguntas ni resultados entre sí', async t => {
+  mockQvac([
+    { action: 'ask', question: '¿Edad del caso A?' },
+    { action: 'ask', question: '¿Edad del caso B?' },
+    { action: 'compare', specialty: 'dermatology' },
+    { action: 'compare', specialty: 'gastro' }
+  ]);
+  await withServer(t, async base => {
+    const a = await startCase(base, 'esencial');
+    const b = await startCase(base, 'plus');
+
+    const aFirst = await sendMessage(base, a.body.caseId, 'Tengo picazón en la piel');
+    assert.equal(aFirst.body.question, '¿Edad del caso A?');
+    assert.equal(aFirst.body.questionsAsked, 1);
+
+    const bFirst = await sendMessage(base, b.body.caseId, 'Tengo acidez de estómago');
+    assert.equal(bFirst.body.question, '¿Edad del caso B?');
+    assert.equal(bFirst.body.questionsAsked, 1); // no arrastra el contador del caso A
+
+    const aSecond = await sendMessage(base, a.body.caseId, 'Tengo 30 años');
+    assert.equal(aSecond.body.specialty, 'dermatology');
+
+    const bSecond = await sendMessage(base, b.body.caseId, 'Tengo 40 años');
+    assert.equal(bSecond.body.specialty, 'gastro');
+  });
+});
+
+test('una urgencia en un caso no afecta a otro caso independiente', async t => {
+  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
+  await withServer(t, async base => {
+    const urgent = await startCase(base, 'esencial');
+    const calm = await startCase(base, 'esencial');
+
+    const urgentResult = await sendMessage(base, urgent.body.caseId, 'Tengo dolor de pecho');
+    assert.equal(urgentResult.body.urgent, true);
+
+    const calmResult = await sendMessage(base, calm.body.caseId, 'Tengo picazón en la piel');
+    assert.equal(calmResult.body.urgent, undefined);
+    assert.ok(calmResult.body.rows.length > 0);
+
+    const urgentAgain = await sendMessage(base, urgent.body.caseId, 'Tengo picazón en la piel');
+    assert.equal(urgentAgain.body.urgent, true);
+  });
+});
+
+test('reiniciar explícitamente el caso (mismo plan) permite un caso independiente tras una urgencia', async t => {
+  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
+  await withServer(t, async base => {
+    const first = await startCase(base, 'esencial');
+    const urgentResult = await sendMessage(base, first.body.caseId, 'Tengo dolor de pecho');
+    assert.equal(urgentResult.body.urgent, true);
+
+    const restarted = await startCase(base, 'esencial');
+    assert.notEqual(restarted.body.caseId, first.body.caseId);
+    const result = await sendMessage(base, restarted.body.caseId, 'Tengo picazón en la piel');
+    assert.equal(result.body.urgent, undefined);
+    assert.ok(result.body.rows.length > 0);
+  });
+});
+
 test('plan inválido al iniciar un caso', async t => {
   await withServer(t, async base => {
     const created = await startCase(base, 'inexistente');
