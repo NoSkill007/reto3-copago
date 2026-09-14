@@ -31,13 +31,16 @@ export function createServer() {
 
         if (req.url === '/api/case') {
           if (!body || typeof body.plan !== 'string') return json(res, 400, { error: 'Selecciona un plan.' });
-          try { return json(res, 201, startCase(body.plan)); }
+          if (body.previousCaseId !== undefined && (typeof body.previousCaseId !== 'string' || typeof body.previousCloseToken !== 'string')) return json(res, 400, { error: 'El caso anterior no es válido.' });
+          try { return json(res, 201, startCase(body.plan, body.previousCaseId, body.previousCloseToken)); }
           catch (err) { return json(res, 400, { error: err.message }); }
         }
 
         if (!body || typeof body.caseId !== 'string' || typeof body.text !== 'string') return json(res, 400, { error: 'Falta el caso o el mensaje.' });
-        try { return json(res, 200, await sendMessage(body.caseId, body.text)); }
-        catch (err) { return json(res, err.message === 'Caso no encontrado.' ? 404 : 400, { error: err.message }); }
+        if (body.mode !== undefined && !['qvac', 'rules'].includes(body.mode)) return json(res, 400, { error: 'Modo de conversación inválido.' });
+        if (body.turnId !== undefined && (typeof body.turnId !== 'string' || body.turnId.length > 100)) return json(res, 400, { error: 'Identificador de turno inválido.' });
+        try { return json(res, 200, await sendMessage(body.caseId, body.text, { mode: body.mode, turnId: body.turnId })); }
+        catch (err) { return json(res, err.message.startsWith('Caso no encontrado') ? 404 : 400, { error: err.message }); }
       }
 
       if (req.method === 'GET' && Object.hasOwn(assets, req.url)) {

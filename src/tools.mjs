@@ -14,7 +14,7 @@ export function toolCoverage(planId) {
     copay: plan.copay,
     coinsurance: plan.coinsurance,
     network: plan.network.map(id => hospitals.find(h => h.id === id).name),
-    conditions: 'Sin deducible, límite anual ni autorización previa en este plan ficticio.'
+    conditions: plan.conditions
   };
 }
 

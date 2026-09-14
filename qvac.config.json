@@ -2,7 +2,7 @@
   "serve": {
     "models": {
       "copago": {
-        "model": "QWEN3_600M_INST_Q4",
+        "model": "QWEN3_1_7B_INST_Q4",
         "default": true,
         "config": { "device": "gpu", "gpu_layers": 999, "ctx_size": 4096, "verbosity": 2 }
       }
