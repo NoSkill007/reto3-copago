@@ -67,8 +67,8 @@ function presentComparison(activeCase, specialty, explanationText, source, uncer
   const { specialtyName, rows } = toolCompare(activeCase.planId, specialty);
   activeCase.comparison = { specialty, rows };
   const text = explanationText ?? (source === 'qvac'
-    ? 'La tabla muestra el gasto estimado de tu consulta con este plan ficticio, ordenado primero por menor gasto en tu red.'
-    : 'La tabla muestra el gasto estimado de tu consulta con tu plan ficticio. QVAC no está disponible: esta respuesta procede de las reglas de demostración, sin IA.');
+    ? 'La tabla muestra el gasto estimado de tu consulta con este plan, ordenado primero por menor gasto en tu red.'
+    : 'La tabla muestra el gasto estimado de tu consulta con tu plan. QVAC no está disponible: esta respuesta usa el modo de reglas, sin IA.');
   activeCase.transcript.push({ role: 'agent', text });
   return { specialty, specialtyName, rows, explanation: { source, text }, ...(uncertain ? { uncertain: true } : {}) };
 }
