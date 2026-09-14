@@ -160,14 +160,14 @@ test('el modelo puede consultar catálogo y cobertura antes de comparar', async 
   });
 });
 
-test('la explicación económica es determinista aunque el modelo envíe texto adicional', async t => {
+test('la explicación para pacientes no incorpora texto adicional del modelo', async t => {
   mockQvac([{ action: 'compare', specialty: 'dermatology', explanation: 'Este hospital garantiza cobertura total.' }]);
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
     const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
     assert.equal(result.body.explanation.source, 'qvac');
     assert.doesNotMatch(result.body.explanation.text, /garantiza cobertura total/i);
-    assert.match(result.body.explanation.text, /cálculo determinista/i);
+    assert.match(result.body.explanation.text, /gasto estimado/i);
   });
 });
 

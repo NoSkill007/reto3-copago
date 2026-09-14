@@ -7,17 +7,17 @@ const DEVICE_PREFERENCE = 'GPU dedicada → integrada → CPU compatible';
 export async function qvacStatus() {
   try {
     const response = await fetch(`${base}/models`, { signal: AbortSignal.timeout(2000) });
-    if (!response.ok) return statusResult('error', `QVAC respondió con estado ${response.status}.`);
+    if (!response.ok) return statusResult('error', 'Tu asistente de cobertura no está disponible en este momento.');
     const body = await response.json();
     const model = body.data?.find(candidate => candidate.id === 'copago');
-    if (!model) return statusResult('unavailable', 'El modelo copago no está disponible.');
-    if (model.state === 'ready') return statusResult('ready', 'QVAC y el modelo copago están listos.');
-    if (['loading', 'downloading', 'starting'].includes(model.state)) return statusResult('loading', 'QVAC está preparando el modelo copago.');
-    return statusResult('error', `El modelo copago informó el estado ${model.state ?? 'desconocido'}. Reinicia el proyecto; si persiste, ejecuta npm run qvac:doctor -- --deep --verbose.`);
+    if (!model) return statusResult('unavailable', 'Tu asistente de cobertura no está disponible en este momento.');
+    if (model.state === 'ready') return statusResult('ready', 'Tu asistente de cobertura está listo.');
+    if (['loading', 'downloading', 'starting'].includes(model.state)) return statusResult('loading', 'Tu asistente de cobertura se está preparando.');
+    return statusResult('error', 'Tu asistente de cobertura no está disponible en este momento. Vuelve a intentarlo más tarde.');
   } catch (error) {
     return error?.name === 'TimeoutError'
-      ? statusResult('timeout', 'QVAC no respondió dentro del tiempo esperado.')
-      : statusResult('unavailable', 'No fue posible conectar con QVAC.');
+      ? statusResult('timeout', 'Tu asistente tardó demasiado en responder.')
+      : statusResult('unavailable', 'Tu asistente de cobertura no está disponible en este momento.');
   }
 }
 

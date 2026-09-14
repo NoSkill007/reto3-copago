@@ -148,7 +148,7 @@ function presentQuestion(activeCase, followUp, source) {
 function presentComparison(activeCase, specialty, source) {
   const { specialtyName, rows } = toolCompare(activeCase.planId, specialty);
   activeCase.comparison = { specialty, rows };
-  const text = 'QVAC orientó la especialidad. La tabla usa exclusivamente el catálogo y el cálculo determinista del plan seleccionado.';
+  const text = `Con base en lo que nos contaste, te sugerimos consultar con ${specialtyName}. Aquí puedes comparar el gasto estimado de una consulta en cada hospital.`;
   activeCase.transcript.push({ role: 'agent', text });
   return {
     specialty,
@@ -160,11 +160,11 @@ function presentComparison(activeCase, specialty, source) {
 
 function recoveryResult(reason) {
   const messages = {
-    invalid_response: 'QVAC devolvió una respuesta que no superó nuestras validaciones. No mostramos precios para este turno.',
-    timeout: 'QVAC tardó demasiado en responder. No mostramos precios para este turno.',
-    unavailable: 'QVAC no está disponible. No mostramos precios para este turno.',
-    error: 'QVAC no pudo completar la solicitud. No mostramos precios para este turno.'
-    ,needs_more_context: 'QVAC necesita más contexto para orientar con seguridad. No mostramos precios para este turno; reformula el síntoma o reintenta.'
+    invalid_response: 'No pudimos confirmar una especialidad con seguridad. No mostraremos precios para este turno.',
+    timeout: 'Tu asistente tardó demasiado en responder. No mostraremos precios para este turno.',
+    unavailable: 'Tu asistente no está disponible en este momento. No mostraremos precios para este turno.',
+    error: 'No pudimos completar la orientación. No mostraremos precios para este turno.',
+    needs_more_context: 'Necesitamos un poco más de información para orientarte con seguridad. Reformula la molestia y vuelve a intentarlo; no mostraremos precios todavía.'
   };
   return {
     recovery: { reason, canRetry: true },

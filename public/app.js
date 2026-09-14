@@ -1,7 +1,7 @@
 const byId = id => document.getElementById(id);
 const money = cents => new Intl.NumberFormat('es-PA', { style: 'currency', currency: 'USD' }).format(cents / 100);
 const escapeHtml = text => String(text).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
-const QVAC_SOURCE_LABEL = 'Orientación coordinada por QVAC local';
+const ASSISTANT_SOURCE_LABEL = 'Recomendación de tu asistente de cobertura';
 
 let catalog;
 let caseId;
@@ -25,12 +25,12 @@ async function refreshStatus() {
     const runtimeStatus = await fetchJson('/api/status');
     statusPill.dataset.state = runtimeStatus.state;
     byId('status').textContent = runtimeStatus.message;
-    byId('device').textContent = runtimeStatus.activeDevice
-      ? `Dispositivo activo: ${runtimeStatus.activeDevice}`
-      : `Preferencia: ${runtimeStatus.devicePreference}. ${runtimeStatus.deviceEvidence}`;
+    byId('device').textContent = runtimeStatus.state === 'ready'
+      ? 'Tus datos se procesan de forma privada en esta computadora.'
+      : 'Puedes volver a intentarlo en unos momentos.';
   } catch {
     statusPill.dataset.state = 'error';
-    byId('status').textContent = 'No se pudo consultar el estado de QVAC.';
+    byId('status').textContent = 'No pudimos comprobar el estado de tu asistente.';
     byId('device').textContent = 'Puedes continuar usando la interfaz y volver a intentarlo.';
   }
 }
@@ -96,14 +96,14 @@ function restoreSubmitLabel() {
 }
 
 function renderComparison(result) {
-  const heading = `Orientación: ${escapeHtml(result.specialtyName)}`;
+  const heading = `Especialidad sugerida: ${escapeHtml(result.specialtyName)}`;
   const hospitals = result.rows.map((hospital, index) => `
     <article class="hospital ${index === 0 && hospital.covered ? 'best' : ''}">
       <span class="tag">${!hospital.covered ? 'FUERA DE RED · SIN COBERTURA' : index === 0 ? 'MENOR GASTO EN TU RED' : 'EN TU RED'}</span>
       <div class="hospital-top"><div><h3>${escapeHtml(hospital.name)}</h3><small>${escapeHtml(hospital.area)}</small></div><div class="patient-cost"><div class="price">${money(hospital.patient)}</div><small>Tu gasto estimado</small></div></div>
       <div class="breakdown"><span>Tarifa de consulta</span><span>${money(hospital.rate)}</span><span>Copago fijo</span><span>${money(hospital.copay)}</span><span>Coaseguro sobre saldo</span><span>${money(hospital.coinsurance)}</span><span>Aporta el seguro</span><span>${money(hospital.insurer)}</span></div>
     </article>`).join('');
-  byId('results').innerHTML = `<div class="summary"><h3>${heading}</h3><div>${escapeHtml(result.explanation.text)}</div><span class="source">${QVAC_SOURCE_LABEL}</span></div>${hospitals}<p class="notice">Cálculo en centavos: copago + porcentaje del saldo. Fuera de red pagas la tarifa completa. La orientación es ilustrativa y no evalúa la gravedad; consulta a un profesional para confirmar la especialidad.</p>`;
+  byId('results').innerHTML = `<div class="summary"><h3>${heading}</h3><div>${escapeHtml(result.explanation.text)}</div><span class="source">${ASSISTANT_SOURCE_LABEL}</span></div>${hospitals}<p class="notice">El gasto estimado incluye copago y coaseguro. Fuera de red pagarías la tarifa completa. Esta orientación es ilustrativa y no reemplaza la evaluación de un profesional.</p>`;
 }
 
 function renderRecovery(result) {
@@ -112,8 +112,8 @@ function renderRecovery(result) {
       <span class="state-label">Verificación detenida</span>
       <h3>No se generó ningún precio</h3>
       <p>${escapeHtml(result.message)}</p>
-      <div class="recovery-actions"><button type="button" class="primary compact" data-recovery="retry">Reintentar con QVAC</button></div>
-      <small>Solo QVAC puede orientar la especialidad. No se generó ningún precio.</small>
+      <div class="recovery-actions"><button type="button" class="primary compact" data-recovery="retry">Volver a intentarlo</button></div>
+      <small>Necesitamos confirmar la orientación antes de mostrar un gasto estimado.</small>
     </div>`;
 }
 
@@ -123,7 +123,7 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
   const requestCaseId = caseId;
   byId('error').textContent = '';
   awaitingReply = true;
-  byId('submit').textContent = 'Consultando QVAC…';
+  byId('submit').textContent = 'Consultando a tu asistente…';
   if (appendUser) {
     addMessage(text, 'user');
     byId('symptoms').value = '';
