@@ -21,26 +21,39 @@ async function fetchJson(path, options) {
 }
 
 async function refreshStatus() {
-  const statusPill = document.querySelector('.status-pill');
+  const assistantState = document.querySelector('.assistant-state');
   try {
     const runtimeStatus = await fetchJson('/api/status');
-    statusPill.dataset.state = runtimeStatus.state;
+    assistantState.dataset.state = runtimeStatus.state;
     byId('status').textContent = runtimeStatus.message;
-    byId('device').textContent = runtimeStatus.state === 'ready'
-      ? 'Tus datos se procesan de forma privada en esta computadora.'
-      : 'Puedes volver a intentarlo en unos momentos.';
   } catch {
-    statusPill.dataset.state = 'error';
+    assistantState.dataset.state = 'error';
     byId('status').textContent = 'No pudimos comprobar el estado de tu asistente.';
-    byId('device').textContent = 'Puedes continuar usando la interfaz y volver a intentarlo.';
   }
 }
 
 function addMessage(text, role) {
   const message = document.createElement('div');
-  message.className = role === 'progress' ? 'progress' : role === 'user' ? 'message user' : 'message';
-  message.textContent = text;
+  message.className = role === 'progress' ? 'progress' : role === 'typing' ? 'typing' : role === 'user' ? 'message user' : 'message';
+  if (role === 'typing') message.textContent = 'Tu asistente está revisando tu mensaje…';
+  else message.textContent = text;
   byId('messages').appendChild(message);
+  byId('messages').scrollTop = byId('messages').scrollHeight;
+  return message;
+}
+
+function setActiveStage(stage) {
+  const navigationStage = stage === 'comparison' || stage === 'plan' ? stage : 'conversation';
+  document.querySelectorAll('[data-nav]').forEach(button => {
+    if (button.dataset.nav === navigationStage) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  document.querySelectorAll('[data-step]').forEach(item => item.classList.toggle('is-current', item.dataset.step === stage));
+}
+
+function setResultsStatus(text) {
+  const status = document.querySelector('.results-status');
+  if (status) status.textContent = text;
 }
 
 function renderPlans() {
@@ -63,6 +76,8 @@ async function beginCase() {
   byId('error').textContent = '';
   byId('results').innerHTML = emptyResults;
   byId('messages').innerHTML = '<div class="message">Hola, soy tu asistente de cobertura. Cuéntame qué molestias tienes y te ayudaré a explorar una especialidad y su gasto estimado.</div>';
+  setActiveStage('conversation');
+  setResultsStatus('Aún sin comparación');
   caseId = undefined;
   caseCloseToken = undefined;
   setFormDisabled(false);
@@ -94,7 +109,7 @@ function setFormDisabled(disabled) {
 }
 
 function restoreSubmitLabel() {
-  byId('submit').textContent = 'Explorar mi cobertura';
+  byId('submit-label').textContent = 'Enviar mensaje';
 }
 
 function renderComparison(result) {
@@ -110,6 +125,8 @@ function renderComparison(result) {
   const generatedAt = result.estimate?.generatedAt ? new Intl.DateTimeFormat('es-PA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(result.estimate.generatedAt)) : '';
   const exclusions = result.estimate?.exclusions?.map(escapeHtml).join(' · ') ?? '';
   byId('results').innerHTML = `<div class="summary"><h3>${heading}</h3><div>${escapeHtml(result.explanation.text)}</div><span class="source">${ASSISTANT_SOURCE_LABEL}</span></div><div class="estimate-context"><strong>Estimación ilustrativa</strong><span>${escapeHtml(result.estimate?.visitType ?? 'Consulta ambulatoria')}</span><span>${generatedAt ? `Actualizada: ${escapeHtml(generatedAt)}` : ''}</span></div>${hospitals}<div id="hospital-choice" aria-live="polite"></div><details class="estimate-help"><summary>Antes de usar esta estimación</summary><p>${escapeHtml(result.estimate?.confirmation ?? 'Confirma la cobertura con el hospital y la aseguradora antes de atenderte.')}</p><p>No incluye: ${exclusions || 'medicamentos, exámenes y procedimientos'}.</p></details><p class="notice">El gasto estimado incluye copago y coaseguro. Fuera de red pagarías la tarifa completa. Esta orientación es ilustrativa y no reemplaza la evaluación de un profesional.</p>`;
+  setActiveStage('comparison');
+  setResultsStatus('Comparación lista');
 }
 
 function renderRecovery(result) {
@@ -121,6 +138,8 @@ function renderRecovery(result) {
       <div class="recovery-actions"><button type="button" class="primary compact" data-recovery="retry">Volver a intentarlo</button></div>
       <small>Necesitamos confirmar la orientación antes de mostrar un gasto estimado.</small>
     </div>`;
+  setActiveStage('conversation');
+  setResultsStatus('Orientación pendiente');
 }
 
 function renderHospitalChoice(hospitalId) {
@@ -136,12 +155,13 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
   const requestCaseId = caseId;
   byId('error').textContent = '';
   awaitingReply = true;
-  byId('submit').textContent = 'Consultando a tu asistente…';
+  byId('submit-label').textContent = 'Pensando…';
   if (appendUser) {
     addMessage(text, 'user');
     byId('symptoms').value = '';
   }
   setFormDisabled(true);
+  const typingMessage = addMessage('', 'typing');
   try {
     const result = await fetchJson('/api/case/message', {
       method: 'POST',
@@ -153,12 +173,16 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
       pendingRecovery = undefined;
       addMessage(result.message, 'agent');
       byId('results').innerHTML = `<div class="urgent"><strong>Prioriza tu atención</strong><p>${escapeHtml(result.message)}</p></div>`;
+      setActiveStage('safety');
+      setResultsStatus('Atención prioritaria');
       return;
     }
     if (result.safety) {
       pendingRecovery = undefined;
       addMessage(result.question, 'agent');
       byId('results').innerHTML = `<div class="safety-check" role="status"><span class="state-label">Comprobación de seguridad</span><h3>Antes de revisar cobertura</h3><p>${escapeHtml(result.question)}</p><small>Esta pregunta no es un diagnóstico. Si te preocupa el estado de la persona, busca atención médica de inmediato.</small></div>`;
+      setActiveStage('safety');
+      setResultsStatus('Comprobación de seguridad');
       return;
     }
     if (result.recovery) {
@@ -181,6 +205,7 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
       renderRecovery({ message: `${error.message || 'No se pudo completar la consulta.'} Tu mensaje se conserva para reintentar.` });
     }
   } finally {
+    typingMessage.remove();
     if (token === caseToken) {
       awaitingReply = false;
       setFormDisabled(false);
@@ -205,6 +230,9 @@ byId('results').addEventListener('click', event => {
 
 byId('restart')?.addEventListener('click', beginCase);
 byId('refresh').addEventListener('click', refreshStatus);
+document.querySelectorAll('[data-scroll]').forEach(button => button.addEventListener('click', () => {
+  byId(button.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}));
 document.querySelectorAll('[data-example]').forEach(button => button.addEventListener('click', () => {
   byId('symptoms').value = button.dataset.example;
   byId('symptoms').focus();
