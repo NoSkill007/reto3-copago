@@ -147,14 +147,34 @@ El GGUF local se copió a la caché y su SHA-256 coincide con el del registro.
 `test/qvac-live.test.mjs` se reduce a humo.
 Pendiente del paso 5: el respaldo a la plantilla cuando la explicación falla, que hoy no se puede probar porque la explicación sigue siendo la plantilla.
 
+## Varias molestias y varias personas en una conversación
+
+Dos defectos que solo aparecieron probando en el navegador, ambos por la misma causa.
+
+El primero: la transcripción llevaba las conclusiones del agente, así que la extracción leía de vuelta la especialidad ya anunciada y la repetía.
+Una corrección de la edad se extraía bien y no cambiaba nada, porque el umbral pediátrico de `classify` solo añade pediatría y nunca la quita.
+La transcripción ahora contiene solo evidencia sobre el paciente: lo que dijo y las preguntas que responde.
+
+El segundo: los campos no decían de quién ni de qué molestia hablaban.
+Una conversación que empieza con "mi hijo de 5 años tiene fiebre" y sigue con "tengo picazón en la piel" conservaba `ageYears: 5`, y el umbral pediátrico forzaba pediatría sobre la molestia de la madre; llegó a convivir `ageYears: 5` con `isPregnant: true` orientando a pediatría.
+El prompt ahora ata todos los campos a la molestia que el paciente quiere costear ahora, que es la última que planteó, y pide volver a derivarlos cuando cambia la persona.
+Dos molestias simultáneas de especialidades distintas devuelven `specialty` nulo y preguntan cuál revisar primero, en vez de elegir en silencio.
+
+El umbral pediátrico de `classify` no cambió y sigue siendo correcto: depende de que `ageYears` describa a la persona de la molestia actual, que es lo que el prompt ahora garantiza.
+
+Lección para los pasos siguientes: la evaluación no vio ninguno de los dos, porque `eval/run.mjs` construye la transcripción con mensajes del paciente y preguntas del agente, que es justamente la forma correcta.
+El fallo vivía en el orquestador, en el hueco entre lo que la evaluación medía y lo que la aplicación hacía.
+El caso de corrección del conjunto pasaba al 100% mientras la misma corrección fallaba en el navegador.
+
 ## Mediciones del paso 3
 
 Con Qwen3-4B y el prompt de `src/extraction.mjs`, `npm run eval:extraction` mide:
-precisión de orientación 100% (11/11), cobertura de señales de alarma 100% (8/8), turnos promedio hasta la comparación 1,00 y 1/2 casos vagos que preguntan en vez de adivinar.
+precisión de orientación 100% (14/14), cobertura de señales de alarma 100% (8/8), turnos promedio hasta la comparación 1,00 y 2/3 casos vagos que preguntan en vez de adivinar.
+El conjunto creció con tres casos de cambio de persona o de molestia y uno de dos molestias simultáneas, todos venidos de pruebas en el navegador.
 La línea base antes del paso 3, con Qwen3-1.7B y el prompt de enrutamiento, era 45%, 100% y 0/2.
 
 Estas cifras hay que leerlas con cuidado.
-El conjunto es pequeño (once casos de orientación, ocho de señal de alarma, dos vagos) y el prompt se ajustó en la misma sesión mirando estos resultados, así que el 100% mide en parte el ajuste al conjunto y no solo la capacidad del modelo.
+El conjunto es pequeño (catorce casos de orientación, ocho de señal de alarma, tres vagos) y el prompt se ajustó en la misma sesión mirando estos resultados, así que el 100% mide en parte el ajuste al conjunto y no solo la capacidad del modelo.
 Los ejemplos del prompt se redactaron a propósito con molestias y palabras que no aparecen en `eval/dataset.mjs`, para que la medición no sea memoria del prompt; el texto de los alcances por especialidad y de las pistas de señal de alarma, en cambio, sí se afinó mirando los fallos.
 Ampliar el conjunto es la forma de recuperar la señal.
 

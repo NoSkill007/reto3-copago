@@ -40,7 +40,7 @@ El modelo local extrae las señales de alarma del lenguaje del paciente, pero no
 ## Verificación realizada
 
 - Comprobación de sintaxis de servidor y cliente.
-- `npm run eval:extraction` contra Qwen3-4B: precisión de orientación 100% (11/11), cobertura de señales de alarma 100% (8/8) y un turno promedio hasta la comparación. Ver las advertencias sobre el tamaño del conjunto en `docs/tickets/6-notes.md`.
+- `npm run eval:extraction` contra Qwen3-4B: precisión de orientación 100% (14/14), cobertura de señales de alarma 100% (8/8) y un turno promedio hasta la comparación. Ver las advertencias sobre el tamaño del conjunto en `docs/tickets/6-notes.md`.
 - Prueba de humo `QVAC_LIVE_TEST=1 npm run test:qvac:live` contra el modelo local, en verde.
 - Los recorridos manuales de navegador son anteriores al cambio de modelo y de extracción; hay que repetirlos.
 

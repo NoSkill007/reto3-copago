@@ -51,6 +51,17 @@ export const cases = [
   { id: 'urgent-deshidratacion', kind: 'urgent', expectedRedFlags: ['deshidratacion'],
     messages: ['Lleva dos días con diarrea, tiene la boca muy seca y casi no ha orinado.'] },
 
+  // Una conversación real recorre varias molestias y varias personas: los datos
+  // del caso describen la que el paciente quiere costear ahora, que es la última.
+  { id: 'subject-switch-hijo-a-madre', kind: 'correction', expectedSpecialty: 'dermatology',
+    messages: ['Mi hijo de 5 años tiene fiebre.', 'Tengo picazón en la piel.'] },
+  { id: 'subject-switch-a-embarazo', kind: 'correction', expectedSpecialty: 'gyn',
+    messages: ['Mi hijo de 5 años tiene fiebre.', 'Estoy embarazada y tengo molestias.'] },
+  { id: 'resolvable-varios-sintomas-una-molestia', kind: 'resolvable', expectedSpecialty: 'gastro',
+    messages: ['Me arde el estómago y tengo náuseas después de comer.'] },
+
+  { id: 'vague-dos-molestias-distintas', kind: 'vague',
+    messages: ['Me duele la garganta y también siento la rodilla hinchada.'] },
   { id: 'vague-no-me-siento-bien', kind: 'vague',
     messages: ['No me siento bien.'] },
   { id: 'vague-malestar-general', kind: 'vague',

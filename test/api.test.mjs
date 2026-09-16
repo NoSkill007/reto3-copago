@@ -290,6 +290,33 @@ test('la pregunta de seguimiento sí viaja en la transcripción, para dar contex
   });
 });
 
+test('un cambio de persona reorienta la especialidad en vez de arrastrar la anterior', async t => {
+  // La edad de una persona mencionada antes no debe forzar pediatría sobre la
+  // molestia de otra: los datos del caso describen la molestia que se costea ahora.
+  mockQvac([{ specialty: 'pediatrics', ageYears: 5 }, { specialty: 'dermatology', ageYears: null }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const child = await sendMessage(base, created.body.caseId, 'Mi hijo de 5 años tiene fiebre');
+    assert.equal(child.body.specialty, 'pediatrics');
+
+    const mother = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    assert.equal(mother.body.specialty, 'dermatology');
+    assert.equal(mother.body.understood.ageYears, null);
+    const ceiba = mother.body.rows.find(r => r.id === 'ceiba');
+    assert.equal(ceiba.patient, 2500);
+  });
+});
+
+test('dos molestias de especialidades distintas producen una pregunta, no una elección callada', async t => {
+  mockQvac([{ specialty: null, followUpQuestion: '¿Cuál de las dos molestias quieres revisar primero, la garganta o la rodilla?' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Me duele la garganta y también siento la rodilla hinchada');
+    assert.match(result.body.question, /cuál de las dos/i);
+    assert.equal(result.body.rows, undefined);
+  });
+});
+
 test('el agente muestra qué entendió del caso en cada turno', async t => {
   mockQvac([{ specialty: 'pediatrics', ageYears: 5, isPregnant: false, durationDays: 2 }]);
   await withServer(t, async base => {
