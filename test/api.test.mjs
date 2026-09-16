@@ -260,6 +260,16 @@ test('el agente muestra qué entendió del caso en cada turno', async t => {
   });
 });
 
+test('las fichas de lo entendido muestran la especialidad que se está comparando', async t => {
+  mockQvac([{ specialty: 'ent', ageYears: 6 }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'A mi hija de 6 años le duele la garganta');
+    assert.equal(result.body.specialty, 'pediatrics');
+    assert.equal(result.body.understood.specialty, 'pediatrics');
+  });
+});
+
 test('agotar el tope de preguntas compara con medicina general y lo declara aproximado', async t => {
   mockQvac(() => ({ specialty: null }));
   await withServer(t, async base => {

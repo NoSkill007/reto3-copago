@@ -24,4 +24,4 @@ _Avoid_: Historial clínico
 Solo existen los ocho valores de la lista cerrada de `src/extraction.mjs`.
 _Avoid_: Síntoma grave
 
-**Agente de cobertura**: Asistente que conduce la conversación, solicita información faltante y consulta las herramientas de cobertura y comparación para ayudar al paciente a entender su gasto estimado.
+**Agente de cobertura**: Asistente que conduce la conversación, extrae los datos del caso de lo que el paciente cuenta y consulta la herramienta de comparación para ayudarle a entender su gasto estimado.

@@ -114,7 +114,7 @@ function presentComparison(activeCase, specialty, approximate) {
     specialtyName,
     approximate,
     rows,
-    understood: understood(activeCase.caseData),
+    understood: understood(activeCase.caseData, specialty),
     explanation: { source: 'template', text },
     estimate: {
       source: 'demo',
@@ -127,9 +127,11 @@ function presentComparison(activeCase, specialty, approximate) {
 }
 
 // Lo que el agente entendió del caso, para que el paciente detecte a tiempo un
-// error. La interfaz lo presenta como fichas.
-function understood(caseData) {
-  return { specialty: caseData.specialty, ageYears: caseData.ageYears, isPregnant: caseData.isPregnant, durationDays: caseData.durationDays };
+// error. La interfaz lo presenta como fichas. La especialidad es la que la
+// clasificación acabó usando, no la que el modelo propuso, para que las fichas
+// no contradigan la orientación que el paciente está leyendo.
+function understood(caseData, specialty = caseData.specialty) {
+  return { specialty, ageYears: caseData.ageYears, isPregnant: caseData.isPregnant, durationDays: caseData.durationDays };
 }
 
 function recoveryResult(reason) {
