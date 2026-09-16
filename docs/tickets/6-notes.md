@@ -1,5 +1,13 @@
 # Notas de implementación para `docs/tickets/6.md`
 
+## Estado de la entrega
+
+Entregados y en `main`: paso 1 (catálogo a diez especialidades y cinco hospitales, commit `2ecba2a`) y paso 2 (arnés de evaluación en `eval/`, commit `26d1a40`).
+Ambos se implementaron en una sesión que tenía instrucción explícita de detenerse ahí; el paso 3 (extracción y clasificación con su ADR) se maneja en otra sesión y no se tocó.
+Tampoco se tocaron el paso 4 (SQLite), el paso 5 (explicación) ni el paso 6 (interfaz), ni el cambio de modelo a Qwen3-4B descrito en "Modelo e inferencia".
+`npm test` sigue en verde sin cambios porque el catálogo ampliado conserva ids, tarifas y redes de los hospitales originales.
+`npm run eval:extraction` ya corre contra QVAC real; con el Qwen3-1.7B actualmente configurado midió 45% de precisión de orientación, 100% de cobertura de señales de alarma y 0/2 casos vagos que preguntaron en vez de adivinar, una línea base esperable antes del trabajo del paso 3.
+
 Hechos verificados leyendo `node_modules` durante el diseño del ticket 6.
 No son decisiones: son cosas comprobadas que costarían tiempo volver a derivar.
 Cada una cita dónde se comprobó, para que se pueda revalidar si QVAC cambia de versión.
