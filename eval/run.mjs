@@ -1,33 +1,44 @@
-// Arnés de evaluación (docs/tickets/6.md). Llama a la extracción contra el
-// modelo real y produce mediciones, no afirmaciones: sin umbral de aprobación
+// Arnés de evaluación (docs/tickets/6.md). Llama a la extracción de producción
+// contra el modelo real y produce mediciones, no afirmaciones: sin umbral de aprobación
 // y sin papel en la corrida normal de pruebas (`npm test`). Ejecutar con
 // `npm run eval:extraction` mientras `npm start` (o `npm run qvac:start`)
 // mantiene QVAC activo en el puerto 11435.
 
-import { specialties } from '../src/catalog.mjs';
 import { cases } from './dataset.mjs';
-import { extractCase } from './extraction.mjs';
-import { classify } from './classify.mjs';
+import { extractCase } from '../src/extraction.mjs';
+import { classify } from '../src/classification.mjs';
 
 const MAX_QUESTIONS = 5;
 
+// Recorre todos los mensajes del caso: una comparación en el primer turno no
+// termina la conversación, porque un mensaje posterior puede corregir un dato y
+// el agente vuelve a orientar, igual que en producción. Solo la señal de alarma
+// es terminal, que es lo que hace el agente al bloquear el caso.
 async function runCase(testCase) {
   const transcript = [];
   let questionsAsked = 0;
   let caseData = null;
   let outcome = null;
+  let firstComparisonTurn = null;
 
   for (let turn = 0; turn < testCase.messages.length; turn++) {
     transcript.push({ role: 'user', text: testCase.messages[turn] });
-    caseData = await extractCase(transcript, specialties);
+    const extraction = await extractCase(transcript);
+    if (!extraction.ok) throw new Error(`la extracción falló con motivo "${extraction.reason}"`);
+    caseData = extraction.caseData;
     const decision = classify(caseData, { questionsAsked, maxQuestions: MAX_QUESTIONS });
 
     if (decision.action === 'stop') { outcome = { action: 'stop', turns: turn + 1 }; break; }
-    if (decision.action === 'compare') { outcome = { action: 'compare', specialty: decision.specialty, approximate: decision.approximate, turns: turn + 1 }; break; }
+
+    if (decision.action === 'compare') {
+      firstComparisonTurn ??= turn + 1;
+      outcome = { action: 'compare', specialty: decision.specialty, approximate: decision.approximate, turns: firstComparisonTurn };
+      continue;
+    }
 
     questionsAsked++;
-    outcome = { action: 'ask', turns: turn + 1, question: caseData.followUpQuestion };
-    transcript.push({ role: 'agent', text: caseData.followUpQuestion || '(el modelo no redactó una pregunta)' });
+    outcome = { action: 'ask', turns: turn + 1, question: decision.question };
+    transcript.push({ role: 'agent', text: decision.question });
   }
 
   return { case: testCase, outcome, caseData };

@@ -32,7 +32,7 @@ Esa separación permite orientación conversacional sin enviar síntomas a la nu
 ## Operating Context
 
 Aplicación local que se levanta con `npm start`: instala dependencias, arranca QVAC en el puerto 11435 y sirve la interfaz en `http://127.0.0.1:3000`.
-El paciente elige un plan, describe su molestia, responde hasta cinco preguntas de seguimiento y recibe una comparación de hospitales.
+El paciente elige un plan, describe su molestia con sus propias palabras y recibe una comparación de hospitales, normalmente en uno o dos turnos; el agente pregunta solo cuando no logra determinar la especialidad.
 El arranque del asistente puede tardar y su estado (preparando, listo, no disponible) es visible en la interfaz.
 
 ## Capabilities and Constraints

@@ -3,10 +3,9 @@
 ## Estado de la entrega
 
 Entregados y en `main`: paso 1 (catálogo a diez especialidades y cinco hospitales, commit `2ecba2a`) y paso 2 (arnés de evaluación en `eval/`, commit `26d1a40`).
-Ambos se implementaron en una sesión que tenía instrucción explícita de detenerse ahí; el paso 3 (extracción y clasificación con su ADR) se maneja en otra sesión y no se tocó.
-Tampoco se tocaron el paso 4 (SQLite), el paso 5 (explicación) ni el paso 6 (interfaz), ni el cambio de modelo a Qwen3-4B descrito en "Modelo e inferencia".
-`npm test` sigue en verde sin cambios porque el catálogo ampliado conserva ids, tarifas y redes de los hospitales originales.
-`npm run eval:extraction` ya corre contra QVAC real; con el Qwen3-1.7B actualmente configurado midió 45% de precisión de orientación, 100% de cobertura de señales de alarma y 0/2 casos vagos que preguntaron en vez de adivinar, una línea base esperable antes del trabajo del paso 3.
+El paso 3 (extracción y clasificación con su ADR) y el cambio de modelo a Qwen3-4B se entregaron después, en la sesión que documenta la sección "Paso 3 entregado" al final de este archivo.
+Siguen sin tocarse el paso 4 (SQLite), el paso 5 (explicación) y el paso 6 (interfaz).
+`npm run eval:extraction` corre contra QVAC real; con el Qwen3-1.7B de los pasos 1 y 2 midió 45% de precisión de orientación, 100% de cobertura de señales de alarma y 0/2 casos vagos que preguntaron en vez de adivinar, la línea base contra la que se compara el paso 3.
 
 Hechos verificados leyendo `node_modules` durante el diseño del ticket 6.
 No son decisiones: son cosas comprobadas que costarían tiempo volver a derivar.
@@ -129,3 +128,48 @@ Las rutas viven en `src/app.mjs`: `GET /api/catalog`, `GET /api/status`, `POST /
 `test/api.test.mjs` levanta el servidor real con `createServer()` en un puerto efímero y sustituye `globalThis.fetch` solo para las URL que apuntan a `http://127.0.0.1:11435`.
 Esa es la frontera de prueba confirmada del ticket 6.
 Lo único que cambia es el contenido simulado: de líneas de enrutamiento a datos del caso en JSON.
+
+## Paso 3 entregado
+
+Extracción y clasificación en producción, con el ADR en `docs/adr/0001-extraccion-y-clasificacion.md`.
+
+`src/extraction.mjs` hace la única llamada por turno con `response_format` de tipo `json_schema`, y `src/classification.mjs` es la función pura que decide detener, preguntar o comparar.
+`src/qvac.mjs` queda como transporte (`qvacStatus` y `chatCompletion`) sin decisión de acción.
+`src/agent.mjs` es un orquestador delgado: extraer, clasificar, calcular, responder.
+Desaparecen `src/orientation.mjs`, `src/safety.mjs` y `src/conversation.mjs`, y con ellos toda expresión regular de comprensión del lenguaje y la compuerta de seguridad de fiebre infantil, que ahora es una señal de alarma más.
+`eval/extraction.mjs` y `eval/classify.mjs` se eliminan: `eval/run.mjs` importa los módulos de producción, así que la evaluación mide el código que el paciente usa.
+
+El cambio de modelo de "Modelo e inferencia" se hizo aquí porque la calidad de la extracción depende de él.
+`qvac.config.json` declara la constante `QWEN3_4B_INST_Q4_K_M` y `qvac.config.mjs` prefiere `.cache/models/Qwen3-4B-Q4_K_M.gguf` cuando existe, con `preload: true` porque esa forma no lo activa por omisión.
+El GGUF local se copió a la caché y su SHA-256 coincide con el del registro.
+
+`test/api.test.mjs` simula datos del caso en JSON en vez de líneas de enrutamiento, en la misma frontera pública.
+`test/qvac-live.test.mjs` se reduce a humo.
+Pendiente del paso 5: el respaldo a la plantilla cuando la explicación falla, que hoy no se puede probar porque la explicación sigue siendo la plantilla.
+
+## Mediciones del paso 3
+
+Con Qwen3-4B y el prompt de `src/extraction.mjs`, `npm run eval:extraction` mide:
+precisión de orientación 100% (11/11), cobertura de señales de alarma 100% (8/8), turnos promedio hasta la comparación 1,00 y 1/2 casos vagos que preguntan en vez de adivinar.
+La línea base antes del paso 3, con Qwen3-1.7B y el prompt de enrutamiento, era 45%, 100% y 0/2.
+
+Estas cifras hay que leerlas con cuidado.
+El conjunto es pequeño (once casos de orientación, ocho de señal de alarma, dos vagos) y el prompt se ajustó en la misma sesión mirando estos resultados, así que el 100% mide en parte el ajuste al conjunto y no solo la capacidad del modelo.
+Los ejemplos del prompt se redactaron a propósito con molestias y palabras que no aparecen en `eval/dataset.mjs`, para que la medición no sea memoria del prompt; el texto de los alcances por especialidad y de las pistas de señal de alarma, en cambio, sí se afinó mirando los fallos.
+Ampliar el conjunto es la forma de recuperar la señal.
+
+El caso `vague-malestar-general` sigue fallando: "tengo un malestar general" se orienta a medicina general en vez de preguntar.
+La palabra "general" aparece literalmente en la molestia y el modelo se ancla en ella.
+Se dejó fallando a propósito: la forma de arreglarlo era citar la frase del conjunto en el prompt, que convertiría la medición en una tautología.
+
+Dos hallazgos del camino, por si vuelven a aparecer:
+El arreglo de `redFlags` con `enum` invita al modelo a enumerar los ocho valores en vez de seleccionar; se corrigió con ejemplos que muestran `[]` y con la instrucción de preguntarse si la persona necesita urgencias ahora mismo.
+El alcance de `general` en el catálogo decía "sentirse mal en general", que coincide literalmente con la molestia vaga que debía producir null; el fallo estaba en la descripción del catálogo y no en el modelo.
+
+`eval/run.mjs` tenía un error que impedía medir las correcciones: cortaba el recorrido en la primera comparación, así que el segundo mensaje del caso de corrección nunca se enviaba.
+Ahora solo la señal de alarma es terminal, igual que en producción, y los turnos hasta la comparación registran la primera vez que se alcanza.
+
+`QVAC_BASE_URL` se añadió a `src/qvac.mjs` para poder evaluar contra una instancia distinta de la que sirve la demo.
+
+Pendientes: paso 4 (SQLite), paso 5 (explicación) y paso 6 (interfaz).
+`public/app.js` solo perdió la rama de la compuerta de seguridad, que ya no puede ocurrir; el resto de la interfaz es trabajo del paso 6.

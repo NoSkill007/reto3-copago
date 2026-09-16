@@ -3,34 +3,35 @@ import assert from 'node:assert/strict';
 import { createServer } from '../src/app.mjs';
 
 const QVAC_BASE = 'http://127.0.0.1:11435';
+const FOLLOW_UP = '¿En qué parte del cuerpo sientes la molestia?';
 
-function mockQvac(chatResponses) {
+// El servidor real se levanta en un puerto efímero y solo se sustituye la
+// llamada de red hacia QVAC. Lo simulado son los datos del caso en JSON que
+// la extracción recibe del modelo, con la gramática ya aplicada.
+function mockQvac(caseDataResponses) {
   const realFetch = globalThis.fetch;
   let call = 0;
   return mock.method(globalThis, 'fetch', async (url, init) => {
     if (!String(url).startsWith(QVAC_BASE)) return realFetch(url, init);
     if (String(url).includes('/models')) return Response.json({ data: [{ id: 'copago', state: 'ready' }] });
-    const decision = typeof chatResponses === 'function' ? chatResponses(call, init) : chatResponses[Math.min(call, chatResponses.length - 1)];
+    const caseData = typeof caseDataResponses === 'function'
+      ? caseDataResponses(call, init)
+      : caseDataResponses[Math.min(call, caseDataResponses.length - 1)];
     call++;
-    return Response.json({ choices: [{ message: { content: encodeDecision(decision) } }] });
+    return Response.json({ choices: [{ message: { content: encodeCaseData(caseData) } }] });
   });
 }
 
-function encodeDecision(decision) {
-  if (typeof decision === 'string') return decision;
-  if (decision.action === 'ask' && decision.field) return `ASK|${decision.field}`;
-  if (decision.action === 'catalog') return 'CATALOG';
-  if (decision.action === 'coverage') return 'COVERAGE';
-  if (decision.action === 'compare') return `COMPARE|${decision.specialty}`;
-  return String(decision.action ?? 'INVALID').toUpperCase();
+function encodeCaseData(caseData) {
+  if (typeof caseData === 'string') return caseData;
+  return JSON.stringify({ specialty: null, ageYears: null, isPregnant: null, durationDays: null, redFlags: [], followUpQuestion: FOLLOW_UP, ...caseData });
 }
 
 async function withServer(t, fn) {
   const server = createServer().listen(0);
   await new Promise(resolve => server.once('listening', resolve));
-  const base = `http://127.0.0.1:${server.address().port}`;
   t.after(() => server.close());
-  try { await fn(base); } finally { /* no-op */ }
+  await fn(`http://127.0.0.1:${server.address().port}`);
 }
 
 async function startCase(base, plan, previousCase) {
@@ -39,19 +40,18 @@ async function startCase(base, plan, previousCase) {
   return { status: response.status, body: await response.json() };
 }
 
-async function sendMessage(base, caseId, text, mode, turnId) {
-  const response = await fetch(`${base}/api/case/message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caseId, text, ...(mode ? { mode } : {}), ...(turnId ? { turnId } : {}) }) });
+async function sendMessage(base, caseId, text, turnId) {
+  const response = await fetch(`${base}/api/case/message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caseId, text, ...(turnId ? { turnId } : {}) }) });
   return { status: response.status, body: await response.json() };
 }
 
 test('regresión: Esencial/dermatología/La Ceiba cuesta USD 25 y ordena la red por menor gasto', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology', explanation: 'Comparamos tu orientación y estimación.' }]);
+  mockQvac([{ specialty: 'dermatology', durationDays: 1 }]);
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
     assert.equal(created.status, 201);
-    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican desde ayer');
     assert.equal(result.status, 200);
-    assert.equal(result.body.explanation.source, 'qvac');
     const ceiba = result.body.rows.find(r => r.id === 'ceiba');
     assert.equal(ceiba.patient, 2500);
     assert.equal(ceiba.copay, 1500);
@@ -62,10 +62,10 @@ test('regresión: Esencial/dermatología/La Ceiba cuesta USD 25 y ordena la red 
 });
 
 test('regresión: Plus/dermatología/La Ceiba cuesta USD 15.50', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
+  mockQvac([{ specialty: 'dermatology' }]);
   await withServer(t, async base => {
     const created = await startCase(base, 'plus');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican');
     const ceiba = result.body.rows.find(r => r.id === 'ceiba');
     assert.equal(ceiba.patient, 1550);
     assert.equal(ceiba.copay, 1000);
@@ -74,33 +74,20 @@ test('regresión: Plus/dermatología/La Ceiba cuesta USD 15.50', async t => {
 });
 
 test('regresión: Jardines del Canal queda fuera de red con Esencial y cuesta USD 95', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
+  mockQvac([{ specialty: 'dermatology' }]);
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican');
     const canal = result.body.rows.find(r => r.id === 'canal');
     assert.equal(canal.covered, false);
     assert.equal(canal.patient, 9500);
   });
 });
 
-test('el modelo puede pedir información antes de comparar', async t => {
-  mockQvac([{ action: 'ask', field: 'age' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo molestias en la rodilla');
-    assert.equal(result.status, 200);
-    assert.equal(result.body.question, '¿Qué edad tiene la persona que presenta las molestias?');
-    assert.equal(result.body.field, 'age');
-    assert.equal(result.body.source, 'qvac');
-    assert.equal(result.body.rows, undefined);
-  });
-});
-
-test('la API conserva tarifas, red y cálculo determinista de las seis especialidades', async t => {
-  const expected = { general: 3500, dermatology: 6500, gastro: 7500, trauma: 7000, pediatrics: 4000, gyn: 7000 };
+test('la API conserva tarifas, red y cálculo determinista de las diez especialidades', async t => {
+  const expected = { general: 3500, dermatology: 6500, gastro: 7500, trauma: 7000, pediatrics: 4000, gyn: 7000, ent: 5000, ophthalmology: 6000, urology: 7200, endocrinology: 6500 };
   const specialties = Object.keys(expected);
-  mockQvac(call => ({ action: 'compare', specialty: specialties[Math.floor(call / 2)] }));
+  mockQvac(call => ({ specialty: specialties[call] }));
   await withServer(t, async base => {
     for (const specialty of specialties) {
       const created = await startCase(base, 'esencial');
@@ -116,224 +103,8 @@ test('la API conserva tarifas, red y cálculo determinista de las seis especiali
   });
 });
 
-test('una pregunta libre o agrupada del modelo se rechaza fuera del modelo', async t => {
-  mockQvac([{ action: 'ask', question: '¿Qué edad tienes y desde cuándo te duele?' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo molestias generales');
-    assert.equal(result.body.recovery.reason, 'invalid_response');
-    assert.equal(result.body.question, undefined);
-    assert.equal(result.body.rows, undefined);
-  });
-});
-
-test('un campo repetido se rechaza y no consume otra pregunta', async t => {
-  mockQvac([{ action: 'ask', field: 'age' }, { action: 'ask', field: 'age' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const first = await sendMessage(base, created.body.caseId, 'Tengo molestias generales');
-    assert.equal(first.body.questionsAsked, 1);
-    const second = await sendMessage(base, created.body.caseId, 'Prefiero no decirlo');
-    assert.equal(second.body.recovery.reason, 'invalid_response');
-    assert.equal(second.body.rows, undefined);
-  });
-});
-
-test('el modelo no puede preguntar un dato que el paciente ya aportó', async t => {
-  mockQvac([{ action: 'ask', field: 'age' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo 30 años y molestias generales');
-    assert.equal(result.body.recovery.reason, 'invalid_response');
-    assert.equal(result.body.question, undefined);
-  });
-});
-
-test('el modelo puede consultar catálogo y cobertura antes de comparar', async t => {
-  mockQvac([{ action: 'catalog' }, { action: 'coverage' }, { action: 'compare', specialty: 'gastro' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'plus');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo acidez de estómago');
-    assert.equal(result.status, 200);
-    assert.equal(result.body.specialty, 'gastro');
-    assert.equal(result.body.explanation.source, 'qvac');
-  });
-});
-
-test('la explicación para pacientes no incorpora texto adicional del modelo', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology', explanation: 'Este hospital garantiza cobertura total.' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(result.body.explanation.source, 'qvac');
-    assert.doesNotMatch(result.body.explanation.text, /garantiza cobertura total/i);
-    assert.match(result.body.explanation.text, /gasto estimado/i);
-  });
-});
-
-test('acción no permitida del modelo se rechaza sin generar precios', async t => {
-  mockQvac([{ action: 'delete_everything' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(result.status, 200);
-    assert.equal(result.body.recovery.reason, 'invalid_response');
-    assert.doesNotMatch(result.body.message, /QVAC/i);
-    assert.equal(result.body.rows, undefined);
-    assert.equal(result.body.specialty, undefined);
-  });
-});
-
-test('especialidad inválida propuesta por el modelo se rechaza sin precios', async t => {
-  mockQvac([{ action: 'compare', specialty: 'cardiologia' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(result.body.recovery.reason, 'invalid_response');
-    assert.equal(result.body.rows, undefined);
-  });
-});
-
-test('respuesta malformada (no JSON) se rechaza sin precios', async t => {
-  const realFetch = globalThis.fetch;
-  mock.method(globalThis, 'fetch', async (url, init) => {
-    if (!String(url).startsWith(QVAC_BASE)) return realFetch(url, init);
-    if (String(url).includes('/models')) return Response.json({ data: [] });
-    return Response.json({ choices: [{ message: { content: 'esto no es json' } }] });
-  });
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(result.body.recovery.reason, 'invalid_response');
-    assert.equal(result.body.rows, undefined);
-  });
-});
-
-test('QVAC indisponible ofrece recuperación sin orientar ni mostrar precios', async t => {
-  const realFetch = globalThis.fetch;
-  mock.method(globalThis, 'fetch', async (url, init) => {
-    if (!String(url).startsWith(QVAC_BASE)) return realFetch(url, init);
-    throw new Error('conexión rechazada');
-  });
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(result.body.recovery.reason, 'unavailable');
-    assert.equal(result.body.recovery.canUseRules, undefined);
-    assert.equal(result.body.rows, undefined);
-  });
-});
-
-test('el agente repara una respuesta malformada aislada antes de detener la orientación', async t => {
-  mockQvac(['formato incorrecto', { action: 'compare', specialty: 'dermatology' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(result.body.specialty, 'dermatology');
-    assert.equal(result.body.recovery, undefined);
-  });
-});
-
-test('una posible urgencia interrumpe la comparación desde el primer mensaje', async t => {
-  mockQvac([{ action: 'compare', specialty: 'general' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo dolor de pecho');
-    assert.equal(result.status, 200);
-    assert.equal(result.body.urgent, true);
-    assert.equal(result.body.rows, undefined);
-  });
-});
-
-test('un mensaje posterior no urgente no revienta si el historial ya tenía una urgencia', async t => {
-  mockQvac([{ action: 'no_permitida' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const first = await sendMessage(base, created.body.caseId, 'Tengo dolor de pecho');
-    assert.equal(first.body.urgent, true);
-    const second = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(second.status, 200);
-    assert.equal(second.body.urgent, true);
-    assert.equal(second.body.rows, undefined);
-  });
-});
-
-test('detiene las preguntas en cuanto hay información suficiente, antes del máximo', async t => {
-  mockQvac([{ action: 'ask', field: 'age' }, { action: 'compare', specialty: 'dermatology' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const first = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(first.body.field, 'age');
-    assert.equal(first.body.questionsAsked, 1);
-    assert.equal(first.body.questionsRemaining, 4);
-    const second = await sendMessage(base, created.body.caseId, 'Tengo 30 años');
-    assert.equal(second.body.specialty, 'dermatology');
-    assert.equal(second.body.explanation.source, 'qvac');
-  });
-});
-
-test('permite hasta cinco preguntas de seguimiento y bloquea un sexto intento sin inventar la especialidad', async t => {
-  const fields = ['details', 'age', 'pregnancy', 'duration', 'severity', 'impact'];
-  mockQvac(call => ({ action: 'ask', field: fields[call] }));
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    let result = await sendMessage(base, created.body.caseId, 'Tengo molestias generales');
-    for (let i = 1; i <= 5; i++) {
-      assert.equal(result.body.field, fields[i - 1]);
-      assert.equal(typeof result.body.question, 'string');
-      assert.equal(result.body.questionsAsked, i);
-      assert.equal(result.body.questionsRemaining, 5 - i);
-      result = await sendMessage(base, created.body.caseId, `Respuesta ${i}`);
-    }
-    // El sexto intento del modelo se rechaza y no produce estimación.
-    assert.equal(result.status, 200);
-    assert.equal(result.body.question, undefined);
-    assert.equal(result.body.recovery.reason, 'needs_more_context');
-    assert.equal(result.body.rows, undefined);
-  });
-});
-
-test('una urgencia previa en el caso bloquea permanentemente mensajes posteriores, incluso al agotar las cinco preguntas', async t => {
-  mockQvac(() => ({ action: 'ask', field: 'details' }));
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const first = await sendMessage(base, created.body.caseId, 'Tengo dolor de pecho');
-    assert.equal(first.body.urgent, true);
-    for (let i = 0; i < 6; i++) {
-      const next = await sendMessage(base, created.body.caseId, `Mensaje de seguimiento ${i}`);
-      assert.equal(next.status, 200);
-      assert.equal(next.body.urgent, true);
-      assert.equal(next.body.message, first.body.message);
-      assert.equal(next.body.rows, undefined);
-      assert.equal(next.body.uncertain, undefined);
-    }
-  });
-});
-
-test('la fiebre en un niño se revisa por seguridad antes de estimar pediatría', async t => {
-  mockQvac([{ action: 'compare', specialty: 'pediatrics' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const first = await sendMessage(base, created.body.caseId, 'Mi hijo de 5 años tiene fiebre');
-    assert.equal(first.body.safety?.kind, 'child_fever');
-    assert.match(first.body.question, /dificultad para respirar/i);
-    assert.equal(first.body.rows, undefined);
-
-    const result = await sendMessage(base, created.body.caseId, 'No, no tiene ninguna de esas señales.');
-    assert.equal(result.body.specialty, 'pediatrics');
-    const ceiba = result.body.rows.find(r => r.id === 'ceiba');
-    const bahia = result.body.rows.find(r => r.id === 'bahia');
-    const canal = result.body.rows.find(r => r.id === 'canal');
-    assert.equal(ceiba.patient, 2000);
-    assert.equal(bahia.patient, 2200);
-    assert.equal(canal.covered, false);
-    assert.equal(canal.patient, 6000);
-    assert.equal(result.body.rows[0].id, 'ceiba');
-  });
-});
-
 test('regresión: ginecología/obstetricia en Plus calcula los tres hospitales en red', async t => {
-  mockQvac([{ action: 'compare', specialty: 'gyn' }]);
+  mockQvac([{ specialty: 'gyn', isPregnant: true }]);
   await withServer(t, async base => {
     const created = await startCase(base, 'plus');
     const result = await sendMessage(base, created.body.caseId, 'Estoy embarazada y quiero un control');
@@ -348,180 +119,324 @@ test('regresión: ginecología/obstetricia en Plus calcula los tres hospitales e
   });
 });
 
+test('una señal de alarma detiene la estimación sin precios ni orientación de especialidad', async t => {
+  mockQvac([{ specialty: 'pediatrics', ageYears: 3, redFlags: ['vomito_persistente'] }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Mi hijo tiene fiebre y vomita cada 30 minutos');
+    assert.equal(result.status, 200);
+    assert.equal(result.body.urgent, true);
+    assert.match(result.body.message, /urgencias/i);
+    assert.equal(result.body.rows, undefined);
+    assert.equal(result.body.specialty, undefined);
+  });
+});
+
+test('la señal de alarma tiene precedencia sobre cualquier campo faltante', async t => {
+  mockQvac([{ specialty: null, redFlags: ['convulsion'] }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Mi hija empezó a temblar sin control');
+    assert.equal(result.body.urgent, true);
+    assert.equal(result.body.question, undefined);
+    assert.equal(result.body.rows, undefined);
+  });
+});
+
+test('una urgencia previa bloquea permanentemente el resto del caso', async t => {
+  mockQvac(call => (call === 0 ? { redFlags: ['dificultad_respiratoria'] } : { specialty: 'dermatology' }));
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const first = await sendMessage(base, created.body.caseId, 'A mi papá le cuesta mucho respirar');
+    assert.equal(first.body.urgent, true);
+    for (let i = 0; i < 3; i++) {
+      const next = await sendMessage(base, created.body.caseId, `Mensaje de seguimiento ${i}`);
+      assert.equal(next.status, 200);
+      assert.equal(next.body.urgent, true);
+      assert.equal(next.body.message, first.body.message);
+      assert.equal(next.body.rows, undefined);
+    }
+  });
+});
+
+test('una urgencia sobrevenida tras mostrar una comparación retira los precios', async t => {
+  mockQvac(call => (call === 0 ? { specialty: 'dermatology' } : { redFlags: ['sangrado_abundante'] }));
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const first = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican');
+    assert.ok(first.body.rows.length > 0);
+    assert.equal(first.body.urgent, undefined);
+
+    const second = await sendMessage(base, created.body.caseId, 'Me corté y no para de sangrar');
+    assert.equal(second.body.urgent, true);
+    assert.equal(second.body.rows, undefined);
+  });
+});
+
+test('el agente pregunta cuando no puede determinar la especialidad', async t => {
+  mockQvac([{ specialty: null, followUpQuestion: '¿Desde cuándo te sientes así y qué molestia notas más?' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'No me siento bien');
+    assert.equal(result.status, 200);
+    assert.equal(result.body.question, '¿Desde cuándo te sientes así y qué molestia notas más?');
+    assert.equal(result.body.questionsAsked, 1);
+    assert.equal(result.body.questionsRemaining, 4);
+    assert.equal(result.body.rows, undefined);
+    assert.equal(result.body.specialty, undefined);
+  });
+});
+
+test('la pregunta de seguimiento la redacta el modelo y no un catálogo de campos fijos', async t => {
+  mockQvac([{ specialty: null, followUpQuestion: '¿El ardor aparece después de comer o también en ayunas?' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Siento un ardor raro');
+    assert.match(result.body.question, /ayunas/);
+  });
+});
+
+test('llega a la comparación en el turno siguiente a una pregunta', async t => {
+  mockQvac([{ specialty: null }, { specialty: 'gastro', durationDays: 3 }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const first = await sendMessage(base, created.body.caseId, 'No me siento bien');
+    assert.equal(first.body.questionsAsked, 1);
+    const second = await sendMessage(base, created.body.caseId, 'Me arde el estómago después de comer');
+    assert.equal(second.body.specialty, 'gastro');
+    assert.equal(second.body.approximate, false);
+    assert.ok(second.body.rows.length > 0);
+  });
+});
+
+test('una corrección en un turno posterior manda sobre el dato anterior', async t => {
+  // La extracción vuelve a derivar los datos desde la conversación entera, así
+  // que el agente recibe la transcripción completa en cada turno.
+  mockQvac((call, init) => {
+    const conversation = JSON.parse(init.body).messages.at(-1).content;
+    if (call === 0) return { specialty: 'ent', ageYears: 14 };
+    assert.match(conversation, /Tiene 14 años/);
+    assert.match(conversation, /tiene 4 años/);
+    return { specialty: 'pediatrics', ageYears: 4 };
+  });
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const first = await sendMessage(base, created.body.caseId, 'Tiene 14 años y le duele mucho la garganta');
+    assert.equal(first.body.specialty, 'ent');
+    const corrected = await sendMessage(base, created.body.caseId, 'Perdón, tiene 4 años, no 14');
+    assert.equal(corrected.body.specialty, 'pediatrics');
+    assert.equal(corrected.body.understood.ageYears, 4);
+    const ceiba = corrected.body.rows.find(r => r.id === 'ceiba');
+    assert.equal(ceiba.patient, 2000);
+  });
+});
+
+test('una edad menor de doce años orienta pediatría aunque el modelo proponga otra especialidad', async t => {
+  mockQvac([{ specialty: 'ent', ageYears: 4 }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tiene 4 años y le duele mucho la garganta');
+    assert.equal(result.body.specialty, 'pediatrics');
+    const ceiba = result.body.rows.find(r => r.id === 'ceiba');
+    assert.equal(ceiba.patient, 2000);
+  });
+});
+
+test('una edad de doce años o más conserva la especialidad del síntoma', async t => {
+  mockQvac([{ specialty: 'ent', ageYears: 14 }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tiene 14 años y le duele mucho la garganta');
+    assert.equal(result.body.specialty, 'ent');
+  });
+});
+
+test('el agente muestra qué entendió del caso en cada turno', async t => {
+  mockQvac([{ specialty: 'pediatrics', ageYears: 5, isPregnant: false, durationDays: 2 }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Mi hijo de 5 años lleva dos días con tos');
+    assert.deepEqual(result.body.understood, { specialty: 'pediatrics', ageYears: 5, isPregnant: false, durationDays: 2 });
+  });
+});
+
+test('agotar el tope de preguntas compara con medicina general y lo declara aproximado', async t => {
+  mockQvac(() => ({ specialty: null }));
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    let result = await sendMessage(base, created.body.caseId, 'Tengo un malestar general');
+    for (let i = 1; i <= 5; i++) {
+      assert.equal(result.body.questionsAsked, i);
+      assert.equal(result.body.questionsRemaining, 5 - i);
+      assert.equal(typeof result.body.question, 'string');
+      result = await sendMessage(base, created.body.caseId, `Respuesta ${i}`);
+    }
+    assert.equal(result.status, 200);
+    assert.equal(result.body.question, undefined);
+    assert.equal(result.body.recovery, undefined);
+    assert.equal(result.body.specialty, 'general');
+    assert.equal(result.body.approximate, true);
+    assert.match(result.body.explanation.text, /aproximada/i);
+    assert.ok(result.body.rows.length > 0);
+  });
+});
+
+test('una especialidad inexistente en el catálogo degrada a pregunta sin inventar precios', async t => {
+  mockQvac([{ specialty: 'cardiologia' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo una molestia');
+    assert.equal(result.status, 200);
+    assert.equal(result.body.specialty, undefined);
+    assert.equal(result.body.rows, undefined);
+    assert.equal(typeof result.body.question, 'string');
+  });
+});
+
+test('una señal de alarma inexistente en la lista cerrada no detiene la conversación', async t => {
+  mockQvac([{ specialty: 'dermatology', redFlags: ['dolor_de_pecho'] }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican');
+    assert.equal(result.body.urgent, undefined);
+    assert.equal(result.body.specialty, 'dermatology');
+  });
+});
+
+test('una respuesta que no es JSON degrada a pregunta en vez de romper el turno', async t => {
+  mockQvac(['esto no es json']);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican');
+    assert.equal(result.status, 200);
+    assert.equal(typeof result.body.question, 'string');
+    assert.equal(result.body.rows, undefined);
+  });
+});
+
+test('QVAC indisponible ofrece recuperación sin orientar ni mostrar precios', async t => {
+  const realFetch = globalThis.fetch;
+  mock.method(globalThis, 'fetch', async (url, init) => {
+    if (!String(url).startsWith(QVAC_BASE)) return realFetch(url, init);
+    throw new Error('conexión rechazada');
+  });
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican');
+    assert.equal(result.body.recovery.reason, 'unavailable');
+    assert.equal(result.body.recovery.canRetry, true);
+    assert.doesNotMatch(result.body.message, /QVAC/i);
+    assert.equal(result.body.rows, undefined);
+  });
+});
+
+test('un turno fallido se puede reintentar sin duplicar el mensaje en la conversación', async t => {
+  const realFetch = globalThis.fetch;
+  let failed = false;
+  mock.method(globalThis, 'fetch', async (url, init) => {
+    if (!String(url).startsWith(QVAC_BASE)) return realFetch(url, init);
+    if (!failed) { failed = true; throw new Error('conexión rechazada'); }
+    const conversation = JSON.parse(init.body).messages.at(-1).content;
+    assert.equal(conversation.match(/ronchas/g).length, 1);
+    return Response.json({ choices: [{ message: { content: encodeCaseData({ specialty: 'dermatology' }) } }] });
+  });
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const turnId = 'turno-recuperable';
+    const first = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican', turnId);
+    assert.ok(first.body.recovery);
+    const retried = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican', turnId);
+    assert.equal(retried.body.specialty, 'dermatology');
+  });
+});
+
 test('un reintento de red con el mismo turno devuelve el resultado sin mutar el caso', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
+  mockQvac([{ specialty: 'dermatology' }]);
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
     const turnId = 'turno-reintentable';
-    const first = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel', 'qvac', turnId);
-    const retried = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel', 'qvac', turnId);
+    const first = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican', turnId);
+    const retried = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican', turnId);
     assert.deepEqual(retried.body, first.body);
     assert.equal(retried.body.specialty, 'dermatology');
   });
 });
 
-test('una señal de alarma durante la revisión de fiebre infantil bloquea los precios', async t => {
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const first = await sendMessage(base, created.body.caseId, 'Mi hijo de 5 años tiene fiebre');
-    assert.equal(first.body.safety?.kind, 'child_fever');
-    const result = await sendMessage(base, created.body.caseId, 'Le cuesta respirar y no quiere tomar líquidos.');
-    assert.equal(result.body.urgent, true);
-    assert.equal(result.body.rows, undefined);
-    assert.match(result.body.message, /urgencias/i);
-  });
-});
-
-test('toda estimación declara que es una demostración y cuándo se generó', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(result.body.estimate.source, 'demo');
-    assert.match(result.body.estimate.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
-    assert.match(result.body.estimate.exclusions.join(' '), /medicamentos/i);
-  });
-});
-
-test('dos respuestas inválidas permiten reintentar el turno sin cachearlo', async t => {
-  mockQvac(['INVALID', 'INVALID', { action: 'compare', specialty: 'dermatology' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const turnId = 'turno-recuperable';
-    const failed = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel', 'qvac', turnId);
-    assert.ok(failed.body.recovery);
-    const retried = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel', 'qvac', turnId);
-    assert.equal(retried.body.specialty, 'dermatology');
-  });
-});
-
 test('solicitudes simultáneas con el mismo turno comparten una sola mutación', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
+  mockQvac([{ specialty: 'dermatology' }]);
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
     const requests = await Promise.all([
-      sendMessage(base, created.body.caseId, 'Tengo picazón en la piel', 'qvac', 'turno-simultáneo'),
-      sendMessage(base, created.body.caseId, 'Tengo picazón en la piel', 'qvac', 'turno-simultáneo')
+      sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican', 'turno-simultáneo'),
+      sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican', 'turno-simultáneo')
     ]);
     assert.deepEqual(requests[1].body, requests[0].body);
     assert.equal(requests[0].body.specialty, 'dermatology');
   });
 });
 
-test('una duración expresada como "desde hace X años" no se confunde con la edad del paciente', async t => {
-  mockQvac([{ action: 'ask', field: 'age' }]);
+test('una respuesta cacheada no puede restaurar precios después de una urgencia', async t => {
+  mockQvac(call => (call === 0 ? { specialty: 'dermatology' } : { redFlags: ['no_despierta'] }));
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Tengo molestias generales desde hace 3 años');
-    assert.equal(result.body.field, 'age');
-    assert.equal(result.body.specialty, undefined);
-  });
-});
-
-test('la edad aportada en el mensaje inicial orienta pediatría sin preguntas redundantes', async t => {
-  mockQvac([{ action: 'compare', specialty: 'pediatrics' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const result = await sendMessage(base, created.body.caseId, 'Mi hijo de 3 años está decaído');
-    assert.equal(result.body.question, undefined);
-    assert.equal(result.body.specialty, 'pediatrics');
-  });
-});
-
-test('una urgencia sobrevenida tras mostrar una comparación retira los precios y bloquea el resto del caso', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const first = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel');
+    const first = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican', 'comparación-anterior');
     assert.ok(first.body.rows.length > 0);
-    assert.equal(first.body.urgent, undefined);
-
-    const second = await sendMessage(base, created.body.caseId, 'Ahora tengo dolor de pecho');
-    assert.equal(second.body.urgent, true);
-    assert.equal(second.body.rows, undefined);
-    assert.match(second.body.message, /atención/i);
-
-    // La interrupción persiste: no se generan nuevas comparaciones ni se
-    // vuelve a consultar al modelo aunque el paciente siga escribiendo.
-    const third = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel otra vez');
-    assert.equal(third.body.urgent, true);
-    assert.equal(third.body.rows, undefined);
+    const urgent = await sendMessage(base, created.body.caseId, 'Mi hijo no despierta', 'urgencia');
+    assert.equal(urgent.body.urgent, true);
+    const staleRetry = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican', 'comparación-anterior');
+    assert.equal(staleRetry.body.urgent, true);
+    assert.equal(staleRetry.body.rows, undefined);
   });
 });
 
 test('los casos concurrentes no comparten preguntas ni resultados entre sí', async t => {
-  mockQvac([
-    { action: 'ask', field: 'age' },
-    { action: 'ask', field: 'age' },
-    { action: 'compare', specialty: 'dermatology' },
-    { action: 'compare', specialty: 'dermatology' },
-    { action: 'compare', specialty: 'gastro' },
-    { action: 'compare', specialty: 'gastro' }
-  ]);
+  mockQvac([{ specialty: null }, { specialty: null }, { specialty: 'dermatology' }, { specialty: 'gastro' }]);
   await withServer(t, async base => {
     const a = await startCase(base, 'esencial');
     const b = await startCase(base, 'plus');
 
-    const aFirst = await sendMessage(base, a.body.caseId, 'Tengo picazón en la piel');
-    assert.equal(aFirst.body.field, 'age');
+    const aFirst = await sendMessage(base, a.body.caseId, 'No me siento bien');
     assert.equal(aFirst.body.questionsAsked, 1);
-
-    const bFirst = await sendMessage(base, b.body.caseId, 'Tengo acidez de estómago');
-    assert.equal(bFirst.body.field, 'age');
+    const bFirst = await sendMessage(base, b.body.caseId, 'Tengo un malestar');
     assert.equal(bFirst.body.questionsAsked, 1); // no arrastra el contador del caso A
 
-    const aSecond = await sendMessage(base, a.body.caseId, 'Tengo 30 años');
+    const aSecond = await sendMessage(base, a.body.caseId, 'Me pica la piel');
     assert.equal(aSecond.body.specialty, 'dermatology');
-
-    const bSecond = await sendMessage(base, b.body.caseId, 'Tengo 40 años');
+    const bSecond = await sendMessage(base, b.body.caseId, 'Me arde el estómago');
     assert.equal(bSecond.body.specialty, 'gastro');
   });
 });
 
 test('una urgencia en un caso no afecta a otro caso independiente', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
+  mockQvac(call => (call === 0 ? { redFlags: ['labios_azules'] } : { specialty: 'dermatology' }));
   await withServer(t, async base => {
     const urgent = await startCase(base, 'esencial');
     const calm = await startCase(base, 'esencial');
 
-    const urgentResult = await sendMessage(base, urgent.body.caseId, 'Tengo dolor de pecho');
+    const urgentResult = await sendMessage(base, urgent.body.caseId, 'Mi hijo tiene los labios morados');
     assert.equal(urgentResult.body.urgent, true);
 
-    const calmResult = await sendMessage(base, calm.body.caseId, 'Tengo picazón en la piel');
+    const calmResult = await sendMessage(base, calm.body.caseId, 'Tengo unas ronchas que me pican');
     assert.equal(calmResult.body.urgent, undefined);
     assert.ok(calmResult.body.rows.length > 0);
 
-    const urgentAgain = await sendMessage(base, urgent.body.caseId, 'Tengo picazón en la piel');
+    const urgentAgain = await sendMessage(base, urgent.body.caseId, 'Tengo unas ronchas que me pican');
     assert.equal(urgentAgain.body.urgent, true);
   });
 });
 
-test('reiniciar explícitamente el caso (mismo plan) permite un caso independiente tras una urgencia', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
+test('reiniciar explícitamente el caso permite un caso independiente tras una urgencia', async t => {
+  mockQvac(call => (call === 0 ? { redFlags: ['deshidratacion'] } : { specialty: 'dermatology' }));
   await withServer(t, async base => {
     const first = await startCase(base, 'esencial');
-    const urgentResult = await sendMessage(base, first.body.caseId, 'Tengo dolor de pecho');
+    const urgentResult = await sendMessage(base, first.body.caseId, 'Lleva dos días con diarrea y la boca seca');
     assert.equal(urgentResult.body.urgent, true);
 
     const restarted = await startCase(base, 'esencial');
     assert.notEqual(restarted.body.caseId, first.body.caseId);
-    const result = await sendMessage(base, restarted.body.caseId, 'Tengo picazón en la piel');
+    const result = await sendMessage(base, restarted.body.caseId, 'Tengo unas ronchas que me pican');
     assert.equal(result.body.urgent, undefined);
     assert.ok(result.body.rows.length > 0);
-  });
-});
-
-test('una respuesta cacheada no puede restaurar precios después de una urgencia', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
-  await withServer(t, async base => {
-    const created = await startCase(base, 'esencial');
-    const first = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel', 'qvac', 'comparación-anterior');
-    assert.ok(first.body.rows.length > 0);
-    const urgent = await sendMessage(base, created.body.caseId, 'Tengo dolor de pecho', 'qvac', 'urgencia');
-    assert.equal(urgent.body.urgent, true);
-    const staleRetry = await sendMessage(base, created.body.caseId, 'Tengo picazón en la piel', 'qvac', 'comparación-anterior');
-    assert.equal(staleRetry.body.urgent, true);
-    assert.equal(staleRetry.body.rows, undefined);
   });
 });
 
@@ -530,13 +445,14 @@ test('reiniciar elimina explícitamente el caso anterior', async t => {
     const first = await startCase(base, 'esencial');
     const restarted = await startCase(base, 'plus', first.body);
     assert.notEqual(restarted.body.caseId, first.body.caseId);
-    const oldCase = await sendMessage(base, first.body.caseId, 'Tengo picazón en la piel', 'rules');
+    const oldCase = await sendMessage(base, first.body.caseId, 'Tengo unas ronchas que me pican');
     assert.equal(oldCase.status, 404);
     assert.match(oldCase.body.error, /vencido|no encontrado/i);
   });
 });
 
 test('un token ajeno no puede reemplazar ni eliminar un caso existente', async t => {
+  mockQvac([{ specialty: 'dermatology' }]);
   await withServer(t, async base => {
     const first = await startCase(base, 'esencial');
     const attempted = await fetch(`${base}/api/case`, {
@@ -545,8 +461,42 @@ test('un token ajeno no puede reemplazar ni eliminar un caso existente', async t
       body: JSON.stringify({ plan: 'plus', previousCaseId: first.body.caseId, previousCloseToken: 'token-ajeno' })
     });
     assert.equal(attempted.status, 400);
-    const oldCase = await sendMessage(base, first.body.caseId, 'Tengo picazón en la piel', 'rules');
+    const oldCase = await sendMessage(base, first.body.caseId, 'Tengo unas ronchas que me pican');
     assert.equal(oldCase.status, 200);
+  });
+});
+
+test('cambiar de plan requiere un caso nuevo y no reutiliza la comparación previa', async t => {
+  mockQvac([{ specialty: 'dermatology' }]);
+  await withServer(t, async base => {
+    const esencial = await startCase(base, 'esencial');
+    await sendMessage(base, esencial.body.caseId, 'Tengo unas ronchas que me pican');
+    const plus = await startCase(base, 'plus');
+    assert.notEqual(plus.body.caseId, esencial.body.caseId);
+    const result = await sendMessage(base, plus.body.caseId, 'Tengo unas ronchas que me pican');
+    const ceiba = result.body.rows.find(r => r.id === 'ceiba');
+    assert.equal(ceiba.patient, 1550);
+  });
+});
+
+test('toda estimación declara que es una demostración y cuándo se generó', async t => {
+  mockQvac([{ specialty: 'dermatology' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican');
+    assert.equal(result.body.estimate.source, 'demo');
+    assert.match(result.body.estimate.generatedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.match(result.body.estimate.exclusions.join(' '), /medicamentos/i);
+  });
+});
+
+test('la explicación menciona la especialidad y el gasto estimado antes de cualquier cifra', async t => {
+  mockQvac([{ specialty: 'dermatology' }]);
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican');
+    assert.match(result.body.explanation.text, /Dermatología/);
+    assert.match(result.body.explanation.text, /gasto estimado/i);
   });
 });
 
@@ -590,20 +540,7 @@ test('plan inválido al iniciar un caso', async t => {
 
 test('caso inexistente al enviar un mensaje', async t => {
   await withServer(t, async base => {
-    const result = await sendMessage(base, 'caso-fantasma', 'Tengo picazón en la piel');
+    const result = await sendMessage(base, 'caso-fantasma', 'Tengo unas ronchas que me pican');
     assert.equal(result.status, 404);
-  });
-});
-
-test('cambiar de plan requiere un caso nuevo y no reutiliza la comparación previa', async t => {
-  mockQvac([{ action: 'compare', specialty: 'dermatology' }]);
-  await withServer(t, async base => {
-    const esencial = await startCase(base, 'esencial');
-    await sendMessage(base, esencial.body.caseId, 'Tengo picazón en la piel');
-    const plus = await startCase(base, 'plus');
-    assert.notEqual(plus.body.caseId, esencial.body.caseId);
-    const result = await sendMessage(base, plus.body.caseId, 'Tengo picazón en la piel');
-    const ceiba = result.body.rows.find(r => r.id === 'ceiba');
-    assert.equal(ceiba.patient, 1550);
   });
 });

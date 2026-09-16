@@ -178,17 +178,6 @@ function renderUrgent(message) {
   </section>`;
 }
 
-function renderSafetyCheck(question) {
-  byId('results').innerHTML = `<section class="rounded-xl border border-amber-300 bg-amber-50 p-5">
-    <p class="text-xs font-semibold tracking-wide text-amber-800 uppercase">Comprobación de seguridad</p>
-    <h3 class="mt-1 font-semibold text-amber-900">Antes de revisar cobertura</h3>
-    <p class="mt-1.5 text-sm leading-relaxed text-amber-900">${escapeHtml(question)}</p>
-    <p class="mt-3 border-t border-amber-200 pt-3 text-xs leading-relaxed text-amber-800">
-      Esta pregunta no es un diagnóstico. Si te preocupa el estado de la persona, busca atención médica de inmediato.
-    </p>
-  </section>`;
-}
-
 function renderRecovery(result) {
   byId('results').innerHTML = `<section class="card p-5">
     <p class="eyebrow">Verificación detenida</p>
@@ -284,12 +273,6 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
       pendingRecovery = undefined;
       addTurn(result.message, 'agent');
       renderUrgent(result.message);
-      return;
-    }
-    if (result.safety) {
-      pendingRecovery = undefined;
-      addTurn(result.question, 'agent');
-      renderSafetyCheck(result.question);
       return;
     }
     if (result.recovery) {

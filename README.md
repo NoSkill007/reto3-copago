@@ -33,18 +33,18 @@ Fuentes: [servidor QVAC](https://docs.qvac.tether.io/cli/http-server/), [selecci
 
 ## Recorrido
 
-Seleccionar Istmo Esencial, elegir picazón en la piel, enviar, contestar duración y enviar de nuevo. La Ceiba: consulta $65, copago $15, coaseguro $10, paciente $25, seguro $40. Istmo Plus reduce el gasto a $15.50. Probar «dolor de pecho» para ver la interrupción de la comparación.
+Seleccionar Istmo Esencial y describir la molestia con palabras propias: «tengo unas ronchas rojas que me pican mucho en el brazo desde ayer». La Ceiba: consulta $65, copago $15, coaseguro $10, paciente $25, seguro $40. Istmo Plus reduce el gasto a $15.50. Probar «mi hijo tiene fiebre y vomita cada 30 minutos» para ver la interrupción de la comparación por señal de alarma.
 
-El detector ilustrativo de palabras no descarta urgencias ni maneja todas las negaciones o expresiones. La demo no es apta para decisiones clínicas o cotizaciones reales. Ver `docs/demo-spec.md`.
+El modelo local extrae las señales de alarma del lenguaje del paciente, pero no descarta urgencias. La demo no es apta para decisiones clínicas o cotizaciones reales. Ver `docs/demo-spec.md`.
 
 ## Verificación realizada
 
 - Comprobación de sintaxis de servidor y cliente.
-- Recorridos manuales de navegador: dermatología, urgencia sobrevenida, pediatría, embarazo e incertidumbre. La orientación de especialidad depende exclusivamente de QVAC.
-- Una validación previa observó una respuesta con `source: qvac` y un proceso `bare.exe` en la RTX; se debe repetir después de cualquier cambio de modelo, driver o configuración.
-- El texto «Tengo dolor de pecho» suspende la comparación en la interfaz.
+- `npm run eval:extraction` contra Qwen3-4B: precisión de orientación 100% (11/11), cobertura de señales de alarma 100% (8/8) y un turno promedio hasta la comparación. Ver las advertencias sobre el tamaño del conjunto en `docs/tickets/6-notes.md`.
+- Prueba de humo `QVAC_LIVE_TEST=1 npm run test:qvac:live` contra el modelo local, en verde.
+- Los recorridos manuales de navegador son anteriores al cambio de modelo y de extracción; hay que repetirlos.
 
-`npm run check` y las pruebas automatizadas cubren las seis especialidades, preguntas estructuradas por QVAC, aislamiento de casos, reintentos idempotentes, fiebre infantil y fallback sin precios. Para medir el comportamiento del modelo real, con `npm start` activo ejecuta `$env:QVAC_LIVE_TEST=1; npm run test:qvac:live` en PowerShell. Esa prueba es opcional porque usa el modelo local y no un simulador.
+`npm run check` y las pruebas automatizadas cubren las diez especialidades, la detención por señal de alarma y su precedencia, la pregunta de seguimiento redactada por el modelo, la corrección de un dato en un turno posterior, el aislamiento de casos, los reintentos idempotentes y el fallback sin precios. Para comprobar que un turno real llega hasta el modelo, con `npm start` activo ejecuta `$env:QVAC_LIVE_TEST=1; npm run test:qvac:live` en PowerShell. Esa prueba es humo opcional: la calidad del modelo la mide la evaluación de extracción.
 
 ## Evaluación de extracción
 

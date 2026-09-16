@@ -1,7 +1,6 @@
-import { specialties } from './catalog.mjs';
-import { QUESTION_FIELDS } from './conversation.mjs';
-
-const base = 'http://127.0.0.1:11435/v1';
+// `QVAC_BASE_URL` existe para apuntar la evaluación o una prueba de humo a una
+// instancia distinta de la que sirve la demo; la aplicación usa el puerto fijo.
+const base = process.env.QVAC_BASE_URL ?? 'http://127.0.0.1:11435/v1';
 const DEVICE_PREFERENCE = 'GPU dedicada → integrada → CPU compatible';
 
 export async function qvacStatus() {
@@ -32,55 +31,21 @@ function statusResult(state, message) {
   };
 }
 
-export async function decideAction({ plan, transcript, toolResults, questionsAsked = 0, maxQuestions = 5 }) {
+// Único transporte hacia QVAC: hace la llamada HTTP y traduce cualquier falla en
+// un motivo de recuperación. No decide nada sobre el contenido.
+export async function chatCompletion(request, timeoutMs) {
   try {
-    const specialtyList = Object.entries(specialties).map(([id, name]) => `${id}=${name}`).join(', ');
-    const history = transcript.map(message => `${message.role === 'user' ? 'Paciente' : 'Agente'}: ${message.text}`).join('\n');
-    const tools = toolResults.map(toolResult => `Herramienta ${toolResult.tool}: ${JSON.stringify(toolResult.result)}`).join('\n');
-    const remaining = Math.max(0, maxQuestions - questionsAsked);
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const response = await fetch(`${base}/chat/completions`, {
+    const response = await fetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(20000),
-      body: JSON.stringify({
-        model: 'copago', stream: false, max_tokens: 32, temperature: 0.1, reasoning_budget: 0, remove_thinking_from_context: true,
-        messages: [
-          { role: 'system', content: `Return exactly one line and no explanation. Formats: COMPARE|specialty, ASK|field, CATALOG, COVERAGE. Specialties: ${Object.keys(specialties).join(', ')}. Fields: ${QUESTION_FIELDS.join(', ')}. Spanish mappings: piel or picazón -> dermatology; estómago or acidez -> gastro; rodilla or articulación -> trauma; child with fever after a completed safety check -> pediatrics; pregnancy without specific symptom -> gyn. If symptoms identify a specialty, return COMPARE with its specialty. Never ask for information already present. Example input: Paciente: Tengo picazón en la piel desde hace tres días. Example output: COMPARE|dermatology. Plan: ${plan}. Questions: ${questionsAsked}/${maxQuestions}; remaining: ${remaining}. Catalog: ${specialtyList}. ${attempt ? 'Your previous answer was invalid. Reply now using exactly one permitted format.' : ''} /no_think` },
-          { role: 'user', content: `Historial:\n${history || '(vacío)'}\n${tools ? `Herramientas consultadas:\n${tools}\n` : ''}Opción:` }
-        ]
-      })
+      signal: AbortSignal.timeout(timeoutMs),
+      body: JSON.stringify({ model: 'copago', stream: false, reasoning_budget: 0, remove_thinking_from_context: true, ...request })
     });
-      if (!response.ok) return failure(response.status >= 500 ? 'unavailable' : 'error');
-      const body = await response.json();
-      const content = body.choices?.[0]?.message?.content?.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-      const decision = parseDecision(content);
-      if (decision.action !== 'failure' || decision.reason !== 'invalid_response' || attempt === 1) return decision;
-    }
-    return failure('invalid_response');
+    if (!response.ok) return { ok: false, reason: response.status >= 500 ? 'unavailable' : 'error' };
+    const body = await response.json();
+    const content = body.choices?.[0]?.message?.content?.replace(/<think>[\s\S]*?<\/think>/g, '').trim() ?? '';
+    return { ok: true, content };
   } catch (error) {
-    return failure(error?.name === 'TimeoutError' ? 'timeout' : 'unavailable');
+    return { ok: false, reason: error?.name === 'TimeoutError' ? 'timeout' : 'unavailable' };
   }
-}
-
-function parseDecision(content) {
-  if (!content) return failure('invalid_response');
-  const normalized = content.trim().toUpperCase();
-  if (normalized === 'CATALOG') return { action: 'catalog' };
-  if (normalized === 'COVERAGE') return { action: 'coverage' };
-  const ask = normalized.match(/^ASK\|([A-Z_]+)$/);
-  if (ask) {
-    const field = ask[1].toLowerCase();
-    return QUESTION_FIELDS.includes(field) ? { action: 'ask', field } : failure('invalid_response');
-  }
-  const compare = normalized.match(/^COMPARE\|([A-Z_]+)$/);
-  if (compare) {
-    const specialty = compare[1].toLowerCase();
-    return Object.hasOwn(specialties, specialty) ? { action: 'compare', specialty } : failure('invalid_response');
-  }
-  return failure('invalid_response');
-}
-
-function failure(reason) {
-  return { action: 'failure', reason };
 }
