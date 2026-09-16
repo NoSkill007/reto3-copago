@@ -1,7 +1,19 @@
 const byId = id => document.getElementById(id);
-const money = cents => new Intl.NumberFormat('es-PA', { style: 'currency', currency: 'USD' }).format(cents / 100);
+const amount = new Intl.NumberFormat('es-PA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const money = cents => `$${amount.format(cents / 100)}`;
+// Spelled out by parts so the demo reads the same wherever the browser's locale data falls back.
+const timestamp = new Intl.DateTimeFormat('es-PA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const escapeHtml = text => String(text).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 const ASSISTANT_SOURCE_LABEL = 'Recomendación de tu asistente de cobertura';
+const MAX_QUESTIONS = 5;
+
+const STATE_STYLES = {
+  ready: { pill: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
+  loading: { pill: 'bg-amber-50 text-amber-800', dot: 'bg-amber-500' },
+  error: { pill: 'bg-rose-50 text-rose-700', dot: 'bg-rose-500' }
+};
+const STATE_PILL_CLASSES = 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium';
+const DOT_CLASSES = 'size-1.5 shrink-0 rounded-full';
 
 let catalog;
 let caseId;
@@ -11,7 +23,6 @@ let pendingRecovery;
 let awaitingReply = false;
 let caseToken = 0;
 let latestComparison;
-const emptyResults = byId('results').innerHTML;
 
 async function fetchJson(path, options) {
   const response = await fetch(path, options);
@@ -20,50 +31,188 @@ async function fetchJson(path, options) {
   return result;
 }
 
+function setAssistantState(state, message) {
+  const style = STATE_STYLES[state] ?? STATE_STYLES.error;
+  byId('assistant-state').className = `${STATE_PILL_CLASSES} ${style.pill}`;
+  byId('state-dot').className = `${DOT_CLASSES} ${style.dot}`;
+  byId('status').textContent = message;
+}
+
 async function refreshStatus() {
-  const assistantState = document.querySelector('.assistant-state');
   try {
     const runtimeStatus = await fetchJson('/api/status');
-    assistantState.dataset.state = runtimeStatus.state;
-    byId('status').textContent = runtimeStatus.message;
+    setAssistantState(runtimeStatus.state === 'ready' ? 'ready' : runtimeStatus.state === 'loading' ? 'loading' : 'error', runtimeStatus.message);
   } catch {
-    assistantState.dataset.state = 'error';
-    byId('status').textContent = 'No pudimos comprobar el estado de tu asistente.';
+    setAssistantState('error', 'No pudimos comprobar el estado de tu asistente.');
   }
 }
 
-function addMessage(text, role) {
-  const message = document.createElement('div');
-  message.className = role === 'progress' ? 'progress' : role === 'typing' ? 'typing' : role === 'user' ? 'message user' : 'message';
-  if (role === 'typing') message.textContent = 'Tu asistente está revisando tu mensaje…';
-  else message.textContent = text;
-  byId('messages').appendChild(message);
-  byId('messages').scrollTop = byId('messages').scrollHeight;
-  return message;
+function appendToFeed(html) {
+  const feed = byId('messages');
+  feed.insertAdjacentHTML('beforeend', html);
+  feed.scrollTop = feed.scrollHeight;
+  return feed.lastElementChild;
 }
 
-function setActiveStage(stage) {
-  const navigationStage = stage === 'comparison' || stage === 'plan' ? stage : 'conversation';
-  document.querySelectorAll('[data-nav]').forEach(button => {
-    if (button.dataset.nav === navigationStage) button.setAttribute('aria-current', 'page');
-    else button.removeAttribute('aria-current');
-  });
-  document.querySelectorAll('[data-step]').forEach(item => item.classList.toggle('is-current', item.dataset.step === stage));
+function addTurn(text, role) {
+  return appendToFeed(`<p class="turn ${role === 'user' ? 'turn-user' : 'turn-agent'}">${escapeHtml(text)}</p>`);
 }
 
-function setResultsStatus(text) {
-  const status = document.querySelector('.results-status');
-  if (status) status.textContent = text;
+function addTyping() {
+  return appendToFeed(`<p class="turn turn-agent inline-flex items-center gap-2 text-slate-500">
+    <span class="size-1.5 animate-pulse rounded-full bg-slate-400" aria-hidden="true"></span>Tu asistente está revisando tu mensaje…
+  </p>`);
+}
+
+function addQuestionIndex(asked) {
+  return appendToFeed(`<p class="text-center text-[11px] font-medium tracking-wide text-slate-500 uppercase">Pregunta ${asked} de ${MAX_QUESTIONS}</p>`);
 }
 
 function renderPlans() {
-  byId('plan-toggle').innerHTML = catalog.plans.map(plan => `
-    <button type="button" class="plan-card" data-plan="${escapeHtml(plan.id)}" aria-pressed="${plan.id === selectedPlan}">
-      <span class="plan-name">${escapeHtml(plan.name)}</span>
-      <span class="plan-detail">${escapeHtml(plan.description)}</span>
-    </button>`).join('');
+  byId('plan-toggle').innerHTML = catalog.plans.map(plan => {
+    const active = plan.id === selectedPlan;
+    return `<button type="button" data-plan="${escapeHtml(plan.id)}" aria-pressed="${active}"
+      title="${escapeHtml(plan.description)}"
+      class="rounded-md px-3 py-1.5 transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 ${
+        active ? 'bg-white font-medium shadow-sm ring-1 ring-slate-200' : 'text-slate-600 hover:text-slate-900'
+      }">${escapeHtml(plan.name)}</button>`;
+  }).join('');
+  renderPlanSummary();
+}
+
+// The plan's conditions stay visible while a case is open, not tucked behind a tooltip.
+function renderPlanSummary() {
   const plan = catalog.plans.find(candidate => candidate.id === selectedPlan);
-  byId('plan-conditions').innerHTML = plan.conditions.map(condition => `<span>${escapeHtml(condition)}</span>`).join('');
+  byId('plan-summary').innerHTML = `
+    <p class="eyebrow">Tu plan</p>
+    <p class="mt-1 font-semibold">${escapeHtml(plan.name)}</p>
+    <p class="mt-0.5 text-sm text-slate-600">${escapeHtml(plan.description)}</p>
+    <ul class="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-500">
+      ${plan.conditions.map(condition => `<li>${escapeHtml(condition)}</li>`).join('')}
+    </ul>`;
+}
+
+function renderEmpty() {
+  byId('results').innerHTML = `<div class="rounded-xl border border-dashed border-slate-300 bg-white/60 px-5 py-10 text-center">
+    <p class="text-sm font-medium text-slate-700">Tu comparación aparecerá aquí</p>
+    <p class="mx-auto mt-1.5 max-w-xs text-sm leading-relaxed text-slate-500">
+      Primero conversemos sobre tus molestias. Nunca mostramos precios si hay una posible urgencia.
+    </p>
+  </div>`;
+}
+
+function hospitalCard(hospital, index) {
+  const best = index === 0 && hospital.covered;
+  const badge = !hospital.covered
+    ? '<span class="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-amber-800 uppercase">Fuera de red</span>'
+    : best
+      ? '<span class="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-emerald-700 uppercase">Menor gasto</span>'
+      : '<span class="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-slate-600 uppercase">En tu red</span>';
+
+  const body = hospital.covered
+    ? `<dl class="ledger">
+        <div class="ledger-row"><dt>Tarifa de consulta</dt><dd>${money(hospital.rate)}</dd></div>
+        <div class="ledger-row"><dt>Copago fijo</dt><dd>${money(hospital.copay)}</dd></div>
+        <div class="ledger-row"><dt>Coaseguro sobre el saldo</dt><dd>${money(hospital.coinsurance)}</dd></div>
+        <div class="ledger-row"><dt>Aporta el seguro</dt><dd class="text-emerald-700">${money(hospital.insurer)}</dd></div>
+      </dl>
+      <button type="button" data-select-hospital="${escapeHtml(hospital.id)}"
+        class="btn ${best ? 'btn-primary' : 'btn-secondary'} mt-4 w-full">Elegir esta opción</button>`
+    : `<p class="mt-3 border-t border-slate-200 pt-3 text-sm text-slate-500">Tu plan no cubre este hospital: pagarías la tarifa completa.</p>`;
+
+  return `<article class="${hospital.covered ? 'card' : 'rounded-xl border border-slate-200 bg-slate-50'} p-5 ${best ? 'border-2 border-emerald-500' : ''}">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        ${badge}
+        <h3 class="mt-2 font-semibold ${hospital.covered ? '' : 'text-slate-700'}">${escapeHtml(hospital.name)}</h3>
+        <p class="text-sm text-slate-500">${escapeHtml(hospital.area)}</p>
+      </div>
+      <div class="shrink-0 text-right">
+        <p class="text-3xl font-semibold tracking-tight tabular-nums ${hospital.covered ? '' : 'text-slate-700'}">${money(hospital.patient)}</p>
+        <p class="text-xs text-slate-500">${hospital.covered ? 'Tu gasto' : 'Tarifa completa'}</p>
+      </div>
+    </div>
+    ${body}
+  </article>`;
+}
+
+function renderComparison(result) {
+  latestComparison = result;
+  const generatedAt = result.estimate?.generatedAt ? timestamp.format(new Date(result.estimate.generatedAt)) : '';
+  const exclusions = result.estimate?.exclusions?.map(escapeHtml).join(' · ') ?? '';
+
+  byId('results').innerHTML = `
+    <div class="space-y-3">
+      <div class="card p-5">
+        <p class="eyebrow">Especialidad sugerida</p>
+        <h3 class="mt-1 text-lg font-semibold">${escapeHtml(result.specialtyName)}</h3>
+        <p class="mt-1.5 text-sm leading-relaxed text-slate-600">${escapeHtml(result.explanation.text)}</p>
+        <p class="mt-3 border-t border-slate-100 pt-3 text-[11px] font-medium tracking-wide text-slate-500 uppercase">${ASSISTANT_SOURCE_LABEL}</p>
+      </div>
+
+      <p class="flex flex-wrap gap-x-3 gap-y-1 px-1 text-xs text-slate-500">
+        <span class="font-medium text-slate-700">${escapeHtml(result.estimate?.visitType ?? 'Consulta ambulatoria')}</span>
+        ${generatedAt ? `<span>Actualizada: ${escapeHtml(generatedAt)}</span>` : ''}
+      </p>
+
+      ${result.rows.map(hospitalCard).join('')}
+
+      <div id="hospital-choice" aria-live="polite"></div>
+
+      <details class="card px-5 py-4 text-sm">
+        <summary class="cursor-pointer font-medium text-slate-700 marker:text-slate-400">Antes de usar esta estimación</summary>
+        <p class="mt-2 leading-relaxed text-slate-600">${escapeHtml(result.estimate?.confirmation ?? 'Confirma la cobertura con el hospital y la aseguradora antes de atenderte.')}</p>
+        <p class="mt-2 leading-relaxed text-slate-600">No incluye: ${exclusions || 'medicamentos, exámenes y procedimientos'}.</p>
+      </details>
+    </div>`;
+}
+
+function renderUrgent(message) {
+  byId('results').innerHTML = `<section class="rounded-xl border-2 border-rose-300 bg-rose-50 p-5">
+    <p class="text-xs font-semibold tracking-wide text-rose-700 uppercase">Atención prioritaria</p>
+    <h3 class="mt-1 text-lg font-semibold text-rose-900">Prioriza tu atención</h3>
+    <p class="mt-1.5 text-sm leading-relaxed text-rose-900">${escapeHtml(message)}</p>
+    <p class="mt-3 border-t border-rose-200 pt-3 text-xs leading-relaxed text-rose-800">
+      Mientras exista una posible urgencia no mostramos ningún precio.
+    </p>
+  </section>`;
+}
+
+function renderSafetyCheck(question) {
+  byId('results').innerHTML = `<section class="rounded-xl border border-amber-300 bg-amber-50 p-5">
+    <p class="text-xs font-semibold tracking-wide text-amber-800 uppercase">Comprobación de seguridad</p>
+    <h3 class="mt-1 font-semibold text-amber-900">Antes de revisar cobertura</h3>
+    <p class="mt-1.5 text-sm leading-relaxed text-amber-900">${escapeHtml(question)}</p>
+    <p class="mt-3 border-t border-amber-200 pt-3 text-xs leading-relaxed text-amber-800">
+      Esta pregunta no es un diagnóstico. Si te preocupa el estado de la persona, busca atención médica de inmediato.
+    </p>
+  </section>`;
+}
+
+function renderRecovery(result) {
+  byId('results').innerHTML = `<section class="card p-5">
+    <p class="eyebrow">Verificación detenida</p>
+    <h3 class="mt-1 font-semibold">No se generó ningún precio</h3>
+    <p class="mt-1.5 text-sm leading-relaxed text-slate-600">${escapeHtml(result.message)}</p>
+    <button type="button" data-recovery="retry" class="btn btn-primary mt-4">Volver a intentarlo</button>
+    <p class="mt-3 text-xs leading-relaxed text-slate-500">Necesitamos confirmar la orientación antes de mostrar un gasto estimado.</p>
+  </section>`;
+}
+
+function renderHospitalChoice(hospitalId) {
+  const hospital = latestComparison?.rows.find(candidate => candidate.id === hospitalId && candidate.covered);
+  if (!hospital) return;
+  byId('hospital-choice').innerHTML = `<section class="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+    <h3 class="font-semibold text-emerald-900">Elegiste ${escapeHtml(hospital.name)}</h3>
+    <p class="mt-1 text-sm text-emerald-900">Tu gasto estimado para esta consulta es ${money(hospital.patient)}.</p>
+    <ol class="mt-3 list-decimal space-y-1.5 pl-5 text-sm text-emerald-900 marker:text-emerald-600">
+      <li>Confirma que el profesional y la consulta estén dentro de tu red.</li>
+      <li>Consulta directamente con el canal oficial del hospital para agendar.</li>
+      <li>Antes de atenderte, verifica el beneficio vigente con tu aseguradora.</li>
+    </ol>
+    <p class="mt-3 text-xs text-emerald-800">Esta demo no está conectada al sistema de citas ni a beneficios reales.</p>
+  </section>`;
+  byId('hospital-choice').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 async function beginCase() {
@@ -74,10 +223,9 @@ async function beginCase() {
   pendingRecovery = undefined;
   latestComparison = undefined;
   byId('error').textContent = '';
-  byId('results').innerHTML = emptyResults;
-  byId('messages').innerHTML = '<div class="message">Hola, soy tu asistente de cobertura. Cuéntame qué molestias tienes y te ayudaré a explorar una especialidad y su gasto estimado.</div>';
-  setActiveStage('conversation');
-  setResultsStatus('Aún sin comparación');
+  renderEmpty();
+  byId('messages').innerHTML = '';
+  addTurn('Hola, soy tu asistente de cobertura. Cuéntame qué molestias tienes y te ayudaré a explorar una especialidad y su gasto estimado.', 'agent');
   caseId = undefined;
   caseCloseToken = undefined;
   setFormDisabled(false);
@@ -109,44 +257,7 @@ function setFormDisabled(disabled) {
 }
 
 function restoreSubmitLabel() {
-  byId('submit-label').textContent = 'Enviar mensaje';
-}
-
-function renderComparison(result) {
-  latestComparison = result;
-  const heading = `Especialidad sugerida: ${escapeHtml(result.specialtyName)}`;
-  const hospitals = result.rows.map((hospital, index) => `
-    <article class="hospital ${index === 0 && hospital.covered ? 'best' : ''}">
-      <span class="tag">${!hospital.covered ? 'FUERA DE RED · SIN COBERTURA' : index === 0 ? 'MENOR GASTO EN TU RED' : 'EN TU RED'}</span>
-      <div class="hospital-top"><div><h3>${escapeHtml(hospital.name)}</h3><small>${escapeHtml(hospital.area)}</small></div><div class="patient-cost"><div class="price">${money(hospital.patient)}</div><small>Tu gasto estimado</small></div></div>
-      <div class="breakdown"><span>Tarifa de consulta</span><span>${money(hospital.rate)}</span><span>Copago fijo</span><span>${money(hospital.copay)}</span><span>Coaseguro sobre saldo</span><span>${money(hospital.coinsurance)}</span><span>Aporta el seguro</span><span>${money(hospital.insurer)}</span></div>
-      ${hospital.covered ? `<button type="button" class="secondary choose-hospital" data-select-hospital="${escapeHtml(hospital.id)}" aria-label="Elegir ${escapeHtml(hospital.name)}">Elegir esta opción</button>` : ''}
-    </article>`).join('');
-  const generatedAt = result.estimate?.generatedAt ? new Intl.DateTimeFormat('es-PA', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(result.estimate.generatedAt)) : '';
-  const exclusions = result.estimate?.exclusions?.map(escapeHtml).join(' · ') ?? '';
-  byId('results').innerHTML = `<div class="summary"><h3>${heading}</h3><div>${escapeHtml(result.explanation.text)}</div><span class="source">${ASSISTANT_SOURCE_LABEL}</span></div><div class="estimate-context"><strong>Estimación ilustrativa</strong><span>${escapeHtml(result.estimate?.visitType ?? 'Consulta ambulatoria')}</span><span>${generatedAt ? `Actualizada: ${escapeHtml(generatedAt)}` : ''}</span></div>${hospitals}<div id="hospital-choice" aria-live="polite"></div><details class="estimate-help"><summary>Antes de usar esta estimación</summary><p>${escapeHtml(result.estimate?.confirmation ?? 'Confirma la cobertura con el hospital y la aseguradora antes de atenderte.')}</p><p>No incluye: ${exclusions || 'medicamentos, exámenes y procedimientos'}.</p></details><p class="notice">El gasto estimado incluye copago y coaseguro. Fuera de red pagarías la tarifa completa. Esta orientación es ilustrativa y no reemplaza la evaluación de un profesional.</p>`;
-  setActiveStage('comparison');
-  setResultsStatus('Comparación lista');
-}
-
-function renderRecovery(result) {
-  byId('results').innerHTML = `
-    <div class="recovery" role="status">
-      <span class="state-label">Verificación detenida</span>
-      <h3>No se generó ningún precio</h3>
-      <p>${escapeHtml(result.message)}</p>
-      <div class="recovery-actions"><button type="button" class="primary compact" data-recovery="retry">Volver a intentarlo</button></div>
-      <small>Necesitamos confirmar la orientación antes de mostrar un gasto estimado.</small>
-    </div>`;
-  setActiveStage('conversation');
-  setResultsStatus('Orientación pendiente');
-}
-
-function renderHospitalChoice(hospitalId) {
-  const hospital = latestComparison?.rows.find(candidate => candidate.id === hospitalId && candidate.covered);
-  if (!hospital) return;
-  byId('hospital-choice').innerHTML = `<section class="hospital-choice"><h3>Elegiste ${escapeHtml(hospital.name)}</h3><p>Tu gasto estimado para esta consulta es ${money(hospital.patient)}.</p><ol><li>Confirma que el profesional y la consulta estén dentro de tu red.</li><li>Consulta directamente con el canal oficial del hospital para agendar.</li><li>Antes de atenderte, verifica el beneficio vigente con tu aseguradora.</li></ol><p class="choice-note">Esta demo no está conectada al sistema de citas ni a beneficios reales.</p></section>`;
-  byId('hospital-choice').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  byId('submit-label').textContent = 'Enviar';
 }
 
 async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID() } = {}) {
@@ -157,11 +268,11 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
   awaitingReply = true;
   byId('submit-label').textContent = 'Pensando…';
   if (appendUser) {
-    addMessage(text, 'user');
+    addTurn(text, 'user');
     byId('symptoms').value = '';
   }
   setFormDisabled(true);
-  const typingMessage = addMessage('', 'typing');
+  const typingMessage = addTyping();
   try {
     const result = await fetchJson('/api/case/message', {
       method: 'POST',
@@ -171,33 +282,29 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
     if (token !== caseToken) return;
     if (result.urgent) {
       pendingRecovery = undefined;
-      addMessage(result.message, 'agent');
-      byId('results').innerHTML = `<div class="urgent"><strong>Prioriza tu atención</strong><p>${escapeHtml(result.message)}</p></div>`;
-      setActiveStage('safety');
-      setResultsStatus('Atención prioritaria');
+      addTurn(result.message, 'agent');
+      renderUrgent(result.message);
       return;
     }
     if (result.safety) {
       pendingRecovery = undefined;
-      addMessage(result.question, 'agent');
-      byId('results').innerHTML = `<div class="safety-check" role="status"><span class="state-label">Comprobación de seguridad</span><h3>Antes de revisar cobertura</h3><p>${escapeHtml(result.question)}</p><small>Esta pregunta no es un diagnóstico. Si te preocupa el estado de la persona, busca atención médica de inmediato.</small></div>`;
-      setActiveStage('safety');
-      setResultsStatus('Comprobación de seguridad');
+      addTurn(result.question, 'agent');
+      renderSafetyCheck(result.question);
       return;
     }
     if (result.recovery) {
       pendingRecovery = { text };
-      addMessage(result.message, 'agent');
+      addTurn(result.message, 'agent');
       renderRecovery(result);
       return;
     }
     pendingRecovery = undefined;
     if (result.question) {
-      addMessage(result.question, 'agent');
-      if (typeof result.questionsAsked === 'number') addMessage(`Pregunta ${result.questionsAsked} de 5`, 'progress');
+      addTurn(result.question, 'agent');
+      if (typeof result.questionsAsked === 'number') addQuestionIndex(result.questionsAsked);
       return;
     }
-    addMessage(result.explanation.text, 'agent');
+    addTurn(result.explanation.text, 'agent');
     renderComparison(result);
   } catch (error) {
     if (token === caseToken) {
@@ -217,7 +324,7 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
 }
 
 byId('plan-toggle').addEventListener('click', event => {
-  const button = event.target.closest('.plan-card');
+  const button = event.target.closest('[data-plan]');
   if (button) selectPlan(button.dataset.plan);
 });
 
@@ -228,20 +335,29 @@ byId('results').addEventListener('click', event => {
   if (hospitalId) renderHospitalChoice(hospitalId);
 });
 
-byId('restart')?.addEventListener('click', beginCase);
-byId('refresh').addEventListener('click', refreshStatus);
-document.querySelectorAll('[data-scroll]').forEach(button => button.addEventListener('click', () => {
-  byId(button.dataset.scroll)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}));
-document.querySelectorAll('[data-example]').forEach(button => button.addEventListener('click', () => {
-  byId('symptoms').value = button.dataset.example;
+byId('examples').addEventListener('click', event => {
+  const example = event.target.closest('[data-example]')?.dataset.example;
+  if (!example) return;
+  byId('symptoms').value = example;
   byId('symptoms').focus();
-}));
+});
+
+byId('restart').addEventListener('click', beginCase);
+byId('refresh').addEventListener('click', refreshStatus);
 
 byId('form').addEventListener('submit', event => {
   event.preventDefault();
   submitTurn(byId('symptoms').value);
 });
+
+byId('symptoms').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    submitTurn(byId('symptoms').value);
+  }
+});
+
+renderEmpty();
 
 try {
   catalog = await fetchJson('/api/catalog');

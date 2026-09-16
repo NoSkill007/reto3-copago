@@ -4,56 +4,110 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Orientación ilustrativa de especialidad y gasto de consulta en Panamá.">
+  <meta name="theme-color" content="#047857">
   <title>Claro · Tu cobertura en conversación</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
-<body>
-  <a class="skip-link" href="#main-content">Ir a la conversación</a>
-  <div class="app-shell">
-    <aside class="sidebar" aria-label="Navegación de tu caso">
-      <a class="brand" href="/" aria-label="Claro, volver al inicio">claro <span>CUIDADO Y COBERTURA</span></a>
-      <div class="demo-badge">Demo · datos ficticios</div>
-      <nav class="case-nav" aria-label="Secciones del caso">
-        <button type="button" data-scroll="conversation" data-nav="conversation" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5A3.5 3.5 0 0 1 8.5 3h7A3.5 3.5 0 0 1 19 6.5v5A3.5 3.5 0 0 1 15.5 15H12l-3.8 3.2c-.5.4-1.2.1-1.2-.6V15.5A3.5 3.5 0 0 1 5 12.3Z"/></svg><span>Mi conversación</span></button>
-        <button type="button" data-scroll="plan-section" data-nav="plan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5h16M6.5 4v7M17.5 4v7M5 12.5h14v7H5z"/></svg><span>Mi plan</span></button>
-        <button type="button" data-scroll="options" data-nav="comparison"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9m7 10V5m7 14v-7"/></svg><span>Mi comparación</span></button>
-        <button type="button" data-scroll="how-it-works"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 10v5m0-8v.1"/></svg><span>Cómo funciona</span></button>
-      </nav>
-      <section class="case-progress" aria-label="Progreso de la orientación">
-        <p>Tu recorrido</p>
-        <ol><li class="is-current" data-step="conversation"><span>1</span>Cuéntanos qué sientes</li><li data-step="safety"><span>2</span>Revisamos tu seguridad</li><li data-step="comparison"><span>3</span>Comparamos tu cobertura</li></ol>
-      </section>
-      <div class="sidebar-bottom"><div class="privacy-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><span>Tu caso se procesa de forma privada en esta computadora.</span></div></div>
-    </aside>
+<body class="antialiased">
+  <a class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-emerald-700 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white" href="#symptoms">Ir al mensaje</a>
 
-    <div class="page">
-      <header class="topbar"><div><p class="location">Panamá</p><h1>Tu cobertura, paso a paso</h1></div><button id="restart" type="button" class="new-case">Comenzar de nuevo</button></header>
-      <main id="main-content" tabindex="-1">
-        <div class="workspace">
-          <section class="chat-panel" id="conversation" aria-labelledby="assistant-title">
-            <div class="chat-intro"><div><h2 id="assistant-title">Hablemos de lo que necesitas</h2><p>Te orientamos con cuidado y luego te mostramos el gasto estimado de una consulta.</p></div><div class="assistant-state" role="status"><span class="state-dot" aria-hidden="true"></span><span id="status">Preparando tu asistente…</span></div></div>
+  <div class="flex min-h-screen flex-col bg-slate-50 text-slate-900 lg:h-screen lg:min-h-0 lg:overflow-hidden">
+    <header class="sticky top-0 z-20 shrink-0 border-b border-slate-200 bg-white/85 backdrop-blur">
+      <div class="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:px-6">
+        <a class="flex items-center gap-2.5 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600" href="/" aria-label="Claro, volver al inicio">
+          <span class="grid size-8 place-items-center rounded-lg bg-emerald-700 text-sm font-bold text-white" aria-hidden="true">C</span>
+          <span class="leading-tight">
+            <span class="block text-sm font-semibold">Claro</span>
+            <span class="block text-[11px] text-slate-500">Cuidado y cobertura</span>
+          </span>
+        </a>
 
-            <section class="plan-section" id="plan-section" aria-labelledby="plan-title"><div class="plan-title"><h3 id="plan-title">Elige el plan que quieres explorar</h3><button id="refresh" type="button" class="text-button">Actualizar estado</button></div><div id="plan-toggle" class="plan-toggle" aria-label="Planes disponibles"></div><div id="plan-conditions" class="plan-conditions" aria-live="polite"></div></section>
+        <div class="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm" id="plan-toggle" role="group" aria-label="Elige tu plan"></div>
 
-            <div class="chat-feed" id="messages" aria-live="polite" aria-relevant="additions text"></div>
-            <form id="form" class="composer" novalidate>
-              <label for="symptoms">Escribe tu mensaje</label>
-              <textarea id="symptoms" maxlength="2000" aria-describedby="symptoms-help privacy-note" placeholder="Ejemplo: Tengo picazón en la piel desde hace tres días"></textarea>
-              <div class="composer-footer"><div><p class="field-help" id="symptoms-help">No incluyas nombre, cédula, póliza ni otros datos personales.</p><div class="examples" aria-label="Ejemplos para iniciar"><button type="button" data-example="Tengo picazón en la piel">Picazón en la piel</button><button type="button" data-example="Tengo molestias en la rodilla">Molestia de rodilla</button><button type="button" data-example="Tengo acidez de estómago">Acidez</button><button type="button" data-example="Mi hijo de 5 años tiene fiebre">Fiebre en un niño</button><button type="button" data-example="Estoy embarazada y tengo molestias">Embarazo</button></div></div><button class="send-button" id="submit" type="submit"><span id="submit-label">Enviar mensaje</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 8-16 8 3-8z"/></svg></button></div>
-              <p id="error" role="alert"></p>
-            </form>
-            <p class="privacy" id="privacy-note">Los casos vencen tras 30 minutos de inactividad y no se escriben en disco.</p>
-          </section>
+        <div class="ml-auto flex items-center gap-3">
+          <p class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600" id="assistant-state" role="status">
+            <span class="size-1.5 shrink-0 rounded-full bg-slate-400" id="state-dot" aria-hidden="true"></span>
+            <span id="status">Preparando tu asistente…</span>
+          </p>
+          <button id="refresh" type="button" class="btn btn-secondary px-2.5 py-1.5" title="Volver a comprobar el estado del asistente">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="size-4" aria-hidden="true">
+              <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13 2v3h-3" />
+            </svg>
+            <span class="sr-only">Actualizar estado</span>
+          </button>
+        </div>
+      </div>
+    </header>
 
-          <section class="results-panel" id="options" aria-labelledby="options-title"><div class="results-heading"><div><h2 id="options-title">Tus opciones, en claro</h2><p>Cuando tengamos una orientación segura, aquí podrás comparar hospitales.</p></div><span class="results-status">Aún sin comparación</span></div><div id="results" aria-live="polite"><div class="empty"><div class="empty-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19V9m7 14v-7"/></svg></div><h3>Tu comparación aparecerá aquí</h3><p>Primero conversemos sobre tus molestias. Nunca mostraremos precios si hay una posible urgencia.</p></div></div></section>
+    <main class="mx-auto grid w-full max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:min-h-0 lg:flex-1 lg:grid-cols-12">
+      <!-- Conversation: locked to the viewport on desktop, only the feed scrolls. -->
+      <section class="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm lg:col-span-7 lg:min-h-0" aria-labelledby="conversation-title">
+        <div class="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+          <div>
+            <h1 class="text-base font-semibold" id="conversation-title">Cuéntanos qué sientes</h1>
+            <p class="mt-0.5 text-sm text-slate-500">Te orientamos y luego calculamos el gasto de la consulta.</p>
+          </div>
+          <button id="restart" type="button" class="group btn btn-secondary shrink-0 px-2.5 py-1.5">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="size-4 text-slate-500 transition group-hover:text-slate-700" aria-hidden="true">
+              <path d="M8 3.5v9M3.5 8h9" />
+            </svg>
+            Nueva consulta
+          </button>
         </div>
 
-        <section class="how-it-works" id="how-it-works" aria-labelledby="how-title"><div><h2 id="how-title">Una respuesta clara, antes de atenderte</h2></div><ol><li><strong>Conversamos</strong><span>Describe qué sientes con tus propias palabras.</span></li><li><strong>Priorizamos tu seguridad</strong><span>Si aparece una alerta, detenemos la estimación.</span></li><li><strong>Comparas opciones</strong><span>Ves el gasto estimado de cada hospital de la red.</span></li></ol></section>
-      </main>
-      <footer><div class="footer-brand"><a class="brand" href="/">claro <span>CUIDADO Y COBERTURA</span></a><p>Orientación ilustrativa para entender tu cobertura antes de una consulta.</p></div><div><h2>Tu información</h2><p>Los síntomas se procesan en esta computadora. No guardamos historial clínico.</p></div><div><h2>Importante</h2><p>Planes, hospitales y tarifas son ficticios. Esto no es diagnóstico ni una confirmación de cobertura.</p></div><button type="button" class="footer-link" data-scroll="conversation">Volver a la conversación</button></footer>
-    </div>
+        <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5" id="messages" aria-live="polite" aria-relevant="additions text"></div>
+
+        <form id="form" class="shrink-0 border-t border-slate-100 bg-slate-50/60 p-4" novalidate>
+          <div class="mb-2.5 flex flex-wrap gap-1.5" id="examples" aria-label="Ejemplos para iniciar">
+            <button type="button" class="btn-chip" data-example="Tengo picazón en la piel">Picazón en la piel</button>
+            <button type="button" class="btn-chip" data-example="Tengo molestias en la rodilla">Molestia de rodilla</button>
+            <button type="button" class="btn-chip" data-example="Tengo acidez de estómago">Acidez</button>
+            <button type="button" class="btn-chip" data-example="Mi hijo de 5 años tiene fiebre">Fiebre en un niño</button>
+            <button type="button" class="btn-chip" data-example="Estoy embarazada y tengo molestias">Embarazo</button>
+          </div>
+
+          <div class="flex items-end gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-100">
+            <label class="sr-only" for="symptoms">Escribe tu mensaje</label>
+            <textarea id="symptoms" rows="2" maxlength="2000" aria-describedby="symptoms-help"
+              class="flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-slate-500"
+              placeholder="Ejemplo: Tengo picazón en la piel desde hace tres días"></textarea>
+            <button id="submit" type="submit" class="btn btn-primary px-3.5">
+              <span id="submit-label">Enviar</span>
+            </button>
+          </div>
+
+          <p class="mt-2 text-xs text-slate-500" id="symptoms-help">No incluyas nombre, cédula ni póliza. Tu caso vence a los 30 minutos y no se guarda.</p>
+          <p class="mt-1.5 text-sm text-rose-700 empty:mt-0" id="error" role="alert"></p>
+        </form>
+      </section>
+
+      <!-- Estimate: scrolls independently of the conversation. -->
+      <aside class="space-y-3 lg:col-span-5 lg:min-h-0 lg:overflow-y-auto lg:pr-1" aria-labelledby="results-title">
+        <h2 class="sr-only" id="results-title">Tu estimación</h2>
+        <div id="plan-summary" class="card px-5 py-4"></div>
+        <div id="results" aria-live="polite"></div>
+
+        <p class="px-1 text-xs leading-relaxed text-slate-500">
+          Estimación ilustrativa con planes, hospitales y tarifas ficticios. No incluye medicamentos, exámenes ni procedimientos, y no confirma cobertura ni garantiza pago.
+        </p>
+
+        <details class="card px-5 py-4 text-sm">
+          <summary class="cursor-pointer font-medium text-slate-700 marker:text-slate-400">Cómo funciona y límites de la demo</summary>
+          <ol class="mt-3 space-y-3 text-slate-600">
+            <li><strong class="font-medium text-slate-900">Conversamos.</strong> Describe qué sientes con tus propias palabras. El asistente pregunta lo que falte, hasta cinco veces.</li>
+            <li><strong class="font-medium text-slate-900">Priorizamos tu seguridad.</strong> Ante una posible urgencia detenemos la estimación y no mostramos ningún precio.</li>
+            <li><strong class="font-medium text-slate-900">Comparas opciones.</strong> Ves el gasto estimado de cada hospital de tu red, con su desglose.</li>
+          </ol>
+          <p class="mt-3 text-xs leading-relaxed text-slate-500">
+            Tus síntomas se procesan en esta computadora: no hay servicios en la nube y no guardamos historial clínico.
+            Esto no es un diagnóstico ni reemplaza la evaluación de un profesional, y la demo no está conectada a agendas ni a beneficios reales.
+          </p>
+        </details>
+      </aside>
+    </main>
   </div>
+
   <script type="module" src="/app.js"></script>
 </body>
 </html>

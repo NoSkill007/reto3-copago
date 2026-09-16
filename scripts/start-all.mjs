@@ -1,15 +1,20 @@
 import { access } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { buildCss } from './css.mjs';
 
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
 const qvacCli = fileURLToPath(new URL('../node_modules/@qvac/cli/dist/index.js', import.meta.url));
 const qvacConfig = fileURLToPath(new URL('../qvac.config.mjs', import.meta.url));
 const webServer = fileURLToPath(new URL('../server.mjs', import.meta.url));
+const cssWatcher = fileURLToPath(new URL('./css.mjs', import.meta.url));
 const children = new Set();
 const qvacBase = 'http://127.0.0.1:11435/v1';
 const qvacStartupTimeoutMs = 95_000;
 let shuttingDown = false;
+
+if (!await buildCss()) console.warn('[inicio] No se pudo generar public/style.css; se usará la versión existente.');
+launch('el compilador de estilos', process.execPath, [cssWatcher, '--watch']);
 
 console.log('[inicio] Iniciando la aplicación en http://127.0.0.1:3000');
 const webProcess = launch('la aplicación web', process.execPath, [webServer]);

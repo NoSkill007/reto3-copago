@@ -1,0 +1,65 @@
+/* Source for public/style.css. Build with `npm run build:css`; `npm start` rebuilds and watches. */
+@import "tailwindcss";
+
+@source "../../public/index.html";
+@source "../../public/app.js";
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+  }
+
+  .eyebrow {
+    @apply text-xs font-medium tracking-wide text-slate-500 uppercase;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition;
+    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600;
+    @apply disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-primary {
+    @apply bg-emerald-700 text-white hover:bg-emerald-800 active:bg-emerald-900;
+  }
+
+  .btn-secondary {
+    @apply border border-slate-200 bg-white text-slate-700 shadow-sm;
+    @apply hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 active:bg-slate-100;
+  }
+
+  .btn-chip {
+    @apply rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 transition;
+    @apply hover:border-slate-300 hover:bg-slate-50;
+    @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600;
+    @apply disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .turn {
+    @apply max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed;
+  }
+
+  .turn-agent {
+    @apply rounded-tl-sm bg-slate-100 text-slate-900;
+  }
+
+  .turn-user {
+    @apply ml-auto rounded-tr-sm bg-emerald-700 text-white;
+  }
+
+  .ledger {
+    @apply mt-4 space-y-1.5 border-t border-slate-100 pt-3.5 text-sm;
+  }
+
+  .ledger-row {
+    @apply flex justify-between gap-4;
+  }
+
+  .ledger-row dt {
+    @apply text-slate-500;
+  }
+
+  .ledger-row dd {
+    @apply font-medium tabular-nums;
+  }
+}
