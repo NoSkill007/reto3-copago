@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { plans, specialties } from './catalog.mjs';
-import { startCase, sendMessage } from './agent.mjs';
+import { startCase, sendMessage, changePlan } from './agent.mjs';
 import { qvacStatus } from './qvac.mjs';
 
 const assets = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/favicon.svg': ['favicon.svg', 'image/svg+xml'] };
@@ -24,7 +24,7 @@ export function createServer({ allowedOrigins = DEFAULT_ALLOWED_ORIGINS } = {}) 
       if (req.method === 'GET' && req.url === '/api/catalog') return json(res, 200, { plans, specialties, note: CATALOG_NOTE });
       if (req.method === 'GET' && req.url === '/api/status') return json(res, 200, await qvacStatus());
 
-      if (req.method === 'POST' && (req.url === '/api/case' || req.url === '/api/case/message')) {
+      if (req.method === 'POST' && (req.url === '/api/case' || req.url === '/api/case/message' || req.url === '/api/case/plan')) {
         if (!originOk(req, allowedOrigins)) return json(res, 403, { error: 'Origen no permitido.' });
         let body;
         try { body = await readJsonBody(req); } catch (err) { return json(res, err.status ?? 400, { error: err.message }); }
@@ -34,6 +34,12 @@ export function createServer({ allowedOrigins = DEFAULT_ALLOWED_ORIGINS } = {}) 
           if (body.previousCaseId !== undefined && (typeof body.previousCaseId !== 'string' || typeof body.previousCloseToken !== 'string')) return json(res, 400, { error: 'El caso anterior no es válido.' });
           try { return json(res, 201, startCase(body.plan, body.previousCaseId, body.previousCloseToken)); }
           catch (err) { return json(res, 400, { error: err.message }); }
+        }
+
+        if (req.url === '/api/case/plan') {
+          if (!body || typeof body.caseId !== 'string' || typeof body.plan !== 'string') return json(res, 400, { error: 'Falta el caso o el plan.' });
+          try { return json(res, 200, changePlan(body.caseId, body.plan)); }
+          catch (err) { return json(res, err.message.startsWith('Caso no encontrado') ? 404 : 400, { error: err.message }); }
         }
 
         if (!body || typeof body.caseId !== 'string' || typeof body.text !== 'string') return json(res, 400, { error: 'Falta el caso o el mensaje.' });

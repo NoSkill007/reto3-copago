@@ -160,16 +160,39 @@ Una conversación que empieza con "mi hijo de 5 años tiene fiebre" y sigue con 
 El prompt ahora ata todos los campos a la molestia que el paciente quiere costear ahora, que es la última que planteó, y pide volver a derivarlos cuando cambia la persona.
 Dos molestias simultáneas de especialidades distintas devuelven `specialty` nulo y preguntan cuál revisar primero, en vez de elegir en silencio.
 
-El umbral pediátrico de `classify` no cambió y sigue siendo correcto: depende de que `ageYears` describa a la persona de la molestia actual, que es lo que el prompt ahora garantiza.
+El umbral pediátrico de `classify` se retiró en el paso 6, cuando volvió a fallar por la misma causa: el prompt no garantiza de forma fiable de quién es `ageYears`, y la regla convertía esa duda en una certeza equivocada.
+El ADR lo documenta con la medición de lo que cuesta cada opción.
 
 Lección para los pasos siguientes: la evaluación no vio ninguno de los dos, porque `eval/run.mjs` construye la transcripción con mensajes del paciente y preguntas del agente, que es justamente la forma correcta.
 El fallo vivía en el orquestador, en el hueco entre lo que la evaluación medía y lo que la aplicación hacía.
 El caso de corrección del conjunto pasaba al 100% mientras la misma corrección fallaba en el navegador.
 
+## Pasos 4 a 6
+
+Paso 4: el catálogo vive en SQLite (`src/db/schema.sql` y `src/db/seed.sql`, base en memoria generada al arrancar), detrás de la misma interfaz que `estimate.mjs` y `tools.mjs` ya consumían.
+`node:sqlite` no necesita bandera en Node 26 y no se añadió ninguna dependencia.
+Toda la suite pasó sin cambios, que era la señal buscada.
+
+Paso 5: `src/explanation.mjs` hace la segunda llamada, solo en el turno final, con las filas ya calculadas delante; la plantilla anterior queda como respaldo cuando la llamada falla, expira o vuelve vacía.
+Dos errores del modelo local aparecieron en la primera prueba contra él y se corrigieron en el prompt: afirmó "es una visita urgente" a partir de una duración de un día, y con Istmo Plus, cuya red cubre los cinco hospitales, inventó un hospital fuera de la red poniéndole como tarifa completa el precio de consulta de uno cubierto.
+Hablar de urgencia o prioridad está prohibido ahora de forma explícita, y la indicación sobre la red depende de los datos: cuando no hay ninguno fuera, el prompt lo dice y prohíbe mencionarlos.
+
+Paso 6: fichas de lo entendido, respuestas rápidas, ejemplos de inicio más ricos con uno escueto a propósito, cambio de plan sin modelo y una sola región en vivo para el lector de pantalla.
+`POST /api/case/plan` recalcula la comparación abierta con el cálculo determinista, en milisegundos y sin tocar el modelo; la prosa pasa a la plantilla, porque una explicación del modelo citaría las cifras del plan anterior.
+El cambio de plan también limpia los resultados de turno cacheados, que llevaban las cifras del plan viejo.
+
+Las respuestas rápidas se generalizaron de sí/no a cualquier pregunta cerrada.
+El ticket pedía botones de sí o no, pero su propia decisión de que solo la especialidad bloquee la comparación elimina las preguntas de sí o no: cuando la especialidad es nula la pregunta útil es abierta.
+Medido contra el modelo, `followUpIsYesNo` daba false en todos los casos probados y los botones no habrían aparecido nunca.
+El campo pasó a ser `followUpOptions`, un arreglo de opciones que el modelo redacta para su propia pregunta, y entonces sí aparecen donde importan: "¿la garganta o la rodilla?" ofrece las dos molestias.
+Las opciones se validan como se valida todo lo que viene del modelo: se recortan las vacías, repetidas, largas y las que sobran de cuatro.
+
 ## Mediciones del paso 3
 
-Con Qwen3-4B y el prompt de `src/extraction.mjs`, `npm run eval:extraction` mide:
-precisión de orientación 100% (14/14), cobertura de señales de alarma 100% (8/8), turnos promedio hasta la comparación 1,00 y 2/3 casos vagos que preguntan en vez de adivinar.
+Con Qwen3-4B y el prompt de `src/extraction.mjs`, `npm run eval:extraction` mide al cierre del ticket:
+precisión de orientación 93% (13/14), cobertura de señales de alarma 100% (8/8), turnos promedio hasta la comparación 1,00 y 2/3 casos vagos que preguntan en vez de adivinar.
+Llegó a marcar 14/14 con el umbral pediátrico en `classify`, pero entonces fallaba `subject-switch-a-embarazo`, que es un fallo que el paciente ve en pantalla.
+Las dos opciones miden trece de catorce; se eligió la que deja el error leve.
 El conjunto creció con tres casos de cambio de persona o de molestia y uno de dos molestias simultáneas, todos venidos de pruebas en el navegador.
 La línea base antes del paso 3, con Qwen3-1.7B y el prompt de enrutamiento, era 45%, 100% y 0/2.
 
@@ -178,7 +201,13 @@ El conjunto es pequeño (catorce casos de orientación, ocho de señal de alarma
 Los ejemplos del prompt se redactaron a propósito con molestias y palabras que no aparecen en `eval/dataset.mjs`, para que la medición no sea memoria del prompt; el texto de los alcances por especialidad y de las pistas de señal de alarma, en cambio, sí se afinó mirando los fallos.
 Ampliar el conjunto es la forma de recuperar la señal.
 
-El caso `vague-malestar-general` sigue fallando: "tengo un malestar general" se orienta a medicina general en vez de preguntar.
+Quedan dos casos fallando a propósito.
+
+`correction-edad-pediatria`: la garganta de un niño de cuatro años se orienta a otorrinolaringología en vez de pediatría.
+Es el precio de retirar el umbral pediátrico del código, y se intentó recuperar por prompt y por datos del catálogo sin éxito estable: cada redacción que arreglaba este caso rompía un cambio de persona o mandaba la corrección a ginecología.
+Ahí se paró el ajuste, porque seguir era cambiar un fallo por otro a ciegas.
+
+`vague-malestar-general`: "tengo un malestar general" se orienta a medicina general en vez de preguntar.
 La palabra "general" aparece literalmente en la molestia y el modelo se ancla en ella.
 Se dejó fallando a propósito: la forma de arreglarlo era citar la frase del conjunto en el prompt, que convertiría la medición en una tautología.
 

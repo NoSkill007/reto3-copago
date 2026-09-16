@@ -22,7 +22,7 @@ export async function explainComparison({ plan, specialtyName, rows, caseData, a
   return text ? { source: 'qvac', text } : { source: 'template', text: fallback };
 }
 
-function templateText(specialtyName, approximate) {
+export function templateText(specialtyName, approximate) {
   return approximate
     ? `No logramos precisar la especialidad con lo que nos contaste, así que te orientamos con ${specialtyName} y esta estimación es aproximada. Aquí puedes comparar el gasto estimado de una consulta en cada hospital.`
     : `Con base en lo que nos contaste, te sugerimos consultar con ${specialtyName}. Aquí puedes comparar el gasto estimado de una consulta en cada hospital.`;

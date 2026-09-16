@@ -5,7 +5,6 @@ const money = cents => `$${amount.format(cents / 100)}`;
 const timestamp = new Intl.DateTimeFormat('es-PA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const escapeHtml = text => String(text).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 const ASSISTANT_SOURCE_LABEL = 'Recomendación de tu asistente de cobertura';
-const MAX_QUESTIONS = 5;
 
 const STATE_STYLES = {
   ready: { pill: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
@@ -64,8 +63,38 @@ function addTyping() {
   </p>`);
 }
 
-function addQuestionIndex(asked) {
-  return appendToFeed(`<p class="text-center text-[11px] font-medium tracking-wide text-slate-500 uppercase">Pregunta ${asked} de ${MAX_QUESTIONS}</p>`);
+// Fichas de lo que el agente entendió. Se repintan en cada turno desde la
+// respuesta del servidor, así que un dato mal entendido se ve enseguida.
+function renderUnderstood(understood) {
+  const chips = [
+    understood.specialty ? chip('Especialidad', catalog.specialties[understood.specialty] ?? understood.specialty) : '',
+    understood.ageYears !== null ? chip('Edad', understood.ageYears === 0 ? 'menos de 1 año' : `${understood.ageYears} años`) : '',
+    understood.isPregnant === true ? chip('Embarazo', 'sí') : '',
+    understood.durationDays !== null ? chip('Duración', understood.durationDays === 0 ? 'desde hoy' : `${understood.durationDays} día${understood.durationDays === 1 ? '' : 's'}`) : ''
+  ].filter(Boolean);
+  byId('understood').classList.toggle('hidden', chips.length === 0);
+  byId('understood-chips').innerHTML = chips.join('');
+}
+
+function chip(label, value) {
+  return `<span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700">
+    <span class="text-slate-500">${escapeHtml(label)}:</span>${escapeHtml(value)}
+  </span>`;
+}
+
+function clearUnderstood() {
+  byId('understood').classList.add('hidden');
+  byId('understood-chips').innerHTML = '';
+}
+
+// Las respuestas rápidas las decide el modelo que redactó la pregunta; la
+// interfaz solo pinta un botón por cada una y no interpreta el texto.
+function renderQuickAnswers(answers) {
+  const container = byId('quick-answers');
+  container.classList.toggle('hidden', !answers);
+  container.innerHTML = answers
+    ? `<span class="text-xs text-slate-500">Responder:</span>${answers.map(answer => `<button type="button" class="btn-chip" data-quick-answer="${escapeHtml(answer)}">${escapeHtml(answer)}</button>`).join('')}`
+    : '';
 }
 
 function renderPlans() {
@@ -213,6 +242,8 @@ async function beginCase() {
   latestComparison = undefined;
   byId('error').textContent = '';
   renderEmpty();
+  clearUnderstood();
+  renderQuickAnswers(undefined);
   byId('messages').innerHTML = '';
   addTurn('Hola, soy tu asistente de cobertura. Cuéntame qué molestias tienes y te ayudaré a explorar una especialidad y su gasto estimado.', 'agent');
   caseId = undefined;
@@ -238,7 +269,29 @@ function selectPlan(planId) {
   if (planId === selectedPlan) return;
   selectedPlan = planId;
   renderPlans();
-  beginCase();
+  if (caseId) recalculateForPlan(planId);
+  else beginCase();
+}
+
+// Cambiar de plan no vuelve a llamar al modelo: el cálculo es determinista, así
+// que los importes nuevos aparecen de inmediato.
+async function recalculateForPlan(planId) {
+  const token = caseToken;
+  const requestCaseId = caseId;
+  try {
+    const result = await fetchJson('/api/case/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ caseId: requestCaseId, plan: planId })
+    });
+    if (token !== caseToken) return;
+    if (result.urgent) return renderUrgent(result.message);
+    if (!result.rows) return;
+    addTurn(`Cambiamos tu plan a ${catalog.plans.find(plan => plan.id === planId).name}. Estos son los importes actualizados.`, 'agent');
+    renderComparison(result);
+  } catch (error) {
+    if (token === caseToken) byId('error').textContent = error.message || 'No se pudo recalcular con el plan nuevo.';
+  }
 }
 
 function setFormDisabled(disabled) {
@@ -269,8 +322,11 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
       body: JSON.stringify({ caseId: requestCaseId, text, turnId })
     });
     if (token !== caseToken) return;
+    renderQuickAnswers(result.quickAnswers);
+    if (result.understood) renderUnderstood(result.understood);
     if (result.urgent) {
       pendingRecovery = undefined;
+      clearUnderstood();
       addTurn(result.message, 'agent');
       renderUrgent(result.message);
       return;
@@ -284,7 +340,6 @@ async function submitTurn(text, { appendUser = true, turnId = crypto.randomUUID(
     pendingRecovery = undefined;
     if (result.question) {
       addTurn(result.question, 'agent');
-      if (typeof result.questionsAsked === 'number') addQuestionIndex(result.questionsAsked);
       return;
     }
     addTurn(result.explanation.text, 'agent');
@@ -316,6 +371,11 @@ byId('results').addEventListener('click', event => {
   if (action === 'retry' && pendingRecovery) submitTurn(pendingRecovery.text, { appendUser: false, ...(pendingRecovery.turnId ? { turnId: pendingRecovery.turnId } : {}) });
   const hospitalId = event.target.closest('[data-select-hospital]')?.dataset.selectHospital;
   if (hospitalId) renderHospitalChoice(hospitalId);
+});
+
+byId('quick-answers').addEventListener('click', event => {
+  const answer = event.target.closest('[data-quick-answer]')?.dataset.quickAnswer;
+  if (answer) submitTurn(answer);
 });
 
 byId('examples').addEventListener('click', event => {

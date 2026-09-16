@@ -61,9 +61,18 @@ Si la comparación necesitara en el futuro una secuencia de herramientas que dep
 
 La calidad de la orientación pasa a depender enteramente de la extracción, así que hace falta medirla: `npm run eval:extraction` reporta precisión de orientación, cobertura de señales de alarma y turnos hasta la comparación contra el modelo real, sin umbral de aprobación y sin papel en `npm test`.
 
-Una regla vuelve al código: el umbral pediátrico.
-El modelo extrae la edad corregida sin problema, pero conserva la especialidad del síntoma en vez de derivar pediatría, así que "menor de doce años es pediatría" se aplica en `classify` sobre el entero ya extraído.
-El prompt sigue pidiéndola, porque una especialidad correcta a la primera ahorra la corrección; la garantía, sin embargo, está en la función pura.
-Es el mismo criterio que el resto del ADR: el modelo entiende lenguaje, el código aplica reglas.
+Una regla se intentó en el código y se retiró: el umbral pediátrico.
+El razonamiento para meterla era el de este ADR: el modelo extrae la edad corregida sin problema pero conserva la especialidad del síntoma, y "menor de doce años es pediatría" es aritmética sobre un entero.
+Falló porque `ageYears` no dice de quién es la edad.
+En una conversación que empieza con "mi hijo de 5 años tiene fiebre" y sigue con "estoy embarazada y tengo molestias", el campo conservaba el 5 y la regla orientaba a pediatría la molestia de un adulto, con las fichas de pantalla mostrando a la vez una edad de 5 y un embarazo.
+Se probó además un campo explícito, `isChildPatient`, para preguntarle al modelo directamente de quién es la molestia: acertó los casos de un solo paciente y falló los mismos cambios de persona, así que el problema no era cómo se preguntaba.
+
+La corrección es la frontera, no la regla: **el código solo aplica reglas deterministas sobre datos no ambiguos.**
+`ageYears` resultó ambiguo, porque su dueño depende de una atribución que el modelo hace de forma poco fiable a lo largo de la conversación.
+Una regla determinista sobre un dato ambiguo es peor que ninguna: convierte una duda del modelo en una certeza equivocada.
+El umbral pediátrico vive ahora solo en el prompt y en el alcance de la especialidad, que es donde vive el resto de la comprensión.
+
+El precio está medido: con la regla, la evaluación acertaba los casos pediátricos y fallaba el cambio de persona; sin ella, acierta el cambio de persona y orienta la garganta de un niño de cuatro años a otorrinolaringología en vez de pediatría.
+Trece de catorce en ambos casos, pero el error que queda es leve y defendible, y el que se fue era visiblemente absurdo para el paciente que lo leía.
 
 La comprensión del lenguaje por expresiones regulares desaparece, con ella los módulos `src/orientation.mjs`, `src/safety.mjs` y `src/conversation.mjs`, y con ellos el fallo que motivó el cambio: un vómito descrito como "cada 30 minutos" ahora cuenta igual que uno descrito como "vomita todo".

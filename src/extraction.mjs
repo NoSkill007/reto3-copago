@@ -54,7 +54,7 @@ function systemPrompt(specialtyIds) {
     'specialty: el identificador cuyo alcance describa la molestia que el paciente quiere costear ahora.',
     'Si planteó a la vez dos molestias que corresponderían a especialidades distintas y no se puede saber cuál quiere costear, devuelve null y pregunta cuál de las dos quiere revisar primero.',
     'Varios síntomas de una misma molestia no son ambigüedad: orienta la especialidad que les corresponde.',
-    'La edad manda sobre el síntoma: si el paciente tiene menos de 12 años es pediatrics aunque el síntoma apunte a otra especialidad.',
+    'La edad manda sobre el síntoma: si la persona con esta molestia tiene menos de 12 años, la especialidad es pediatrics aunque el síntoma apunte a otra, como una garganta, un oído, una barriga o la piel.',
     'Un embarazo sin síntoma específico corresponde a gyn.',
     'Usa general solo cuando el paciente describió una molestia concreta que no tiene foco en ningún órgano o sistema.',
     'Usa null cuando todavía no describió lo suficiente para saberlo: un malestar difuso, sin ningún síntoma ni parte del cuerpo identificable, es null y no general.',
@@ -73,6 +73,9 @@ function systemPrompt(specialtyIds) {
     'Antes de escribir redFlags pregúntate si esta persona debería estar en una sala de urgencias en este momento. Si la respuesta es no, escribe [].',
     '',
     'followUpQuestion: la siguiente pregunta en español que le harías al paciente para avanzar, sobre lo que acaba de contar y sin repetir lo que ya respondió.',
+    'followUpOptions: las respuestas entre las que el paciente elige, si tu pregunta es cerrada.',
+    'Usa ["Sí", "No"] si se responde con sí o no, o las opciones textuales si le pides elegir entre varias, copiadas cortas y tal como él las diría.',
+    'Deja el arreglo vacío si la pregunta es abierta, como las que piden una parte del cuerpo, una fecha o una edad.',
     '',
     `Especialidades:\n${specialtyList}`,
     '',
@@ -87,17 +90,21 @@ function systemPrompt(specialtyIds) {
       { specialty: 'trauma', durationDays: 14, followUpQuestion: '¿El dolor apareció después de un golpe o esfuerzo?' }),
     example('Paciente: A mi hijo le duele el oído.\nAgente: ¿Qué edad tiene?\nPaciente: Tiene 9, me equivoqué cuando dije 19.',
       { specialty: 'pediatrics', ageYears: 9, followUpQuestion: '¿Le ha salido líquido del oído o ha tenido fiebre?' }),
+    example('Paciente: A mi hija de 6 años le duele la garganta desde el lunes.',
+      { specialty: 'pediatrics', ageYears: 6, durationDays: 3, followUpQuestion: '¿Ha tenido fiebre junto con el dolor de garganta?', followUpOptions: ['Sí', 'No'] }),
     example('Paciente: Se cortó la mano y la venda ya está empapada de sangre.',
       { redFlags: ['sangrado_abundante'], followUpQuestion: '¿Lograste detener el sangrado haciendo presión?' }),
     example('Paciente: A mi hijo de 5 años le dio fiebre.\nPaciente: Y a mí me está saliendo una picazón en la espalda.',
       { specialty: 'dermatology', followUpQuestion: '¿La picazón te empezó de repente o llevas días con ella?' }),
     example('Paciente: Me duele la garganta y además tengo la rodilla hinchada desde el sábado.',
-      { followUpQuestion: '¿Cuál de las dos molestias quieres revisar primero, la garganta o la rodilla?' })
+      { followUpQuestion: '¿Cuál de las dos molestias quieres revisar primero, la garganta o la rodilla?', followUpOptions: ['La garganta', 'La rodilla'] }),
+    example('Paciente: Me siento mal desde el fin de semana.',
+      { followUpQuestion: '¿Tienes alguna molestia en una parte concreta del cuerpo?', followUpOptions: ['Sí', 'No'] })
   ].join('\n');
 }
 
 function example(conversation, fields) {
-  return `${conversation}\n${JSON.stringify({ specialty: null, ageYears: null, isPregnant: null, durationDays: null, redFlags: [], ...fields })}`;
+  return `${conversation}\n${JSON.stringify({ specialty: null, ageYears: null, isPregnant: null, durationDays: null, redFlags: [], followUpOptions: [], ...fields })}`;
 }
 
 function buildSchema(specialtyIds) {
@@ -111,9 +118,10 @@ function buildSchema(specialtyIds) {
         isPregnant: { type: ['boolean', 'null'] },
         durationDays: { type: ['integer', 'null'] },
         redFlags: { type: 'array', items: { type: 'string', enum: RED_FLAGS }, uniqueItems: true },
-        followUpQuestion: { type: 'string' }
+        followUpQuestion: { type: 'string' },
+        followUpOptions: { type: 'array', items: { type: 'string' }, maxItems: 4 }
       },
-      required: ['specialty', 'ageYears', 'isPregnant', 'durationDays', 'redFlags', 'followUpQuestion'],
+      required: ['specialty', 'ageYears', 'isPregnant', 'durationDays', 'redFlags', 'followUpQuestion', 'followUpOptions'],
       additionalProperties: false
     }
   };
@@ -126,6 +134,17 @@ function parseJson(content) {
   } catch { return {}; }
 }
 
+// Una opción de respuesta se convierte en un botón, así que tiene que caber en
+// uno: se recortan las vacías, las repetidas, las largas y las que sobran.
+function followUpOptions(raw) {
+  if (!Array.isArray(raw)) return [];
+  const options = raw
+    .filter(option => typeof option === 'string')
+    .map(option => option.trim())
+    .filter(option => option.length > 0 && option.length <= 40);
+  return [...new Set(options)].slice(0, 4);
+}
+
 // La gramática garantiza la forma, no que un identificador siga existiendo en el
 // catálogo: cada campo inválido degrada a nulo o a arreglo vacío, nunca a excepción.
 function validate(raw, specialtyIds) {
@@ -135,6 +154,7 @@ function validate(raw, specialtyIds) {
     isPregnant: typeof raw.isPregnant === 'boolean' ? raw.isPregnant : null,
     durationDays: Number.isInteger(raw.durationDays) && raw.durationDays >= 0 ? raw.durationDays : null,
     redFlags: Array.isArray(raw.redFlags) ? [...new Set(raw.redFlags.filter(flag => RED_FLAGS.includes(flag)))] : [],
-    followUpQuestion: typeof raw.followUpQuestion === 'string' && raw.followUpQuestion.trim() ? raw.followUpQuestion.trim() : DEFAULT_FOLLOW_UP
+    followUpQuestion: typeof raw.followUpQuestion === 'string' && raw.followUpQuestion.trim() ? raw.followUpQuestion.trim() : DEFAULT_FOLLOW_UP,
+    followUpOptions: followUpOptions(raw.followUpOptions)
   };
 }

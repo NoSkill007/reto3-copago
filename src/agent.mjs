@@ -1,6 +1,6 @@
 import { plans } from './catalog.mjs';
 import { toolCompare } from './tools.mjs';
-import { explainComparison } from './explanation.mjs';
+import { explainComparison, templateText } from './explanation.mjs';
 import { extractCase } from './extraction.mjs';
 import { classify } from './classification.mjs';
 import { closeCaseState, createCaseState, getCaseState } from './case-store.mjs';
@@ -17,6 +17,36 @@ export function startCase(planId, previousCaseId, previousCloseToken) {
     caseId,
     closeToken,
     plan: { id: plan.id, name: plan.name, description: plan.description, copay: plan.copay, coinsurance: plan.coinsurance, conditions: plan.conditions }
+  };
+}
+
+export function changePlan(caseId, planId) {
+  const activeCase = getCaseState(caseId);
+  const plan = plans.find(candidate => candidate.id === planId);
+  if (!plan) throw new Error('Plan inválido.');
+  if (activeCase.urgent) return urgentResult();
+
+  activeCase.planId = planId;
+  // Los resultados cacheados llevan las cifras del plan anterior: reproducir un
+  // turno con su identificador devolvería precios que ya no corresponden.
+  activeCase.turnResults.clear();
+  if (!activeCase.comparison) return { plan: planId };
+
+  const { specialty, approximate } = activeCase.comparison;
+  const { specialtyName, rows } = toolCompare(planId, specialty);
+  activeCase.comparison = { specialty, approximate, rows };
+  return {
+    plan: planId,
+    specialty,
+    specialtyName,
+    approximate,
+    rows,
+    understood: understood(activeCase.caseData ?? emptyCaseData(), specialty),
+    // Recalcular no llama al modelo, así que la prosa es la plantilla: el
+    // paciente ve los importes nuevos de inmediato y no una explicación que
+    // todavía cita las cifras del plan anterior.
+    explanation: { source: 'template', text: templateText(specialtyName, approximate) },
+    estimate: estimateNote()
   };
 }
 
@@ -71,7 +101,7 @@ async function runTurn(activeCase, text) {
   activeCase.caseData = extraction.caseData;
   const decision = classify(extraction.caseData, { questionsAsked: activeCase.questionsAsked, maxQuestions: MAX_QUESTIONS });
   if (decision.action === 'stop') return stopForUrgency(activeCase);
-  if (decision.action === 'ask') return presentQuestion(activeCase, decision.question);
+  if (decision.action === 'ask') return presentQuestion(activeCase, decision);
   return await presentComparison(activeCase, decision.specialty, decision.approximate);
 }
 
@@ -94,7 +124,7 @@ function urgentResult() {
   return { urgent: true, message: URGENT_MESSAGE, source: 'safety' };
 }
 
-function presentQuestion(activeCase, question) {
+function presentQuestion(activeCase, { question, options }) {
   activeCase.questionsAsked++;
   activeCase.transcript.push({ role: 'agent', text: question });
   return {
@@ -102,6 +132,9 @@ function presentQuestion(activeCase, question) {
     message: question,
     source: 'qvac',
     understood: understood(activeCase.caseData),
+    // La interfaz pinta un botón por respuesta rápida sin interpretar la
+    // pregunta: quien sabe si es cerrada es el modelo que la redactó.
+    ...(options.length ? { quickAnswers: options } : {}),
     questionsAsked: activeCase.questionsAsked,
     questionsRemaining: MAX_QUESTIONS - activeCase.questionsAsked
   };
@@ -109,7 +142,7 @@ function presentQuestion(activeCase, question) {
 
 async function presentComparison(activeCase, specialty, approximate) {
   const { specialtyName, rows } = toolCompare(activeCase.planId, specialty);
-  activeCase.comparison = { specialty, rows };
+  activeCase.comparison = { specialty, approximate, rows };
   const plan = plans.find(candidate => candidate.id === activeCase.planId);
   const explanation = await explainComparison({ plan, specialtyName, rows, caseData: activeCase.caseData, approximate });
   return {
@@ -119,14 +152,22 @@ async function presentComparison(activeCase, specialty, approximate) {
     rows,
     understood: understood(activeCase.caseData, specialty),
     explanation,
-    estimate: {
-      source: 'demo',
-      generatedAt: new Date().toISOString(),
-      visitType: 'Consulta ambulatoria inicial',
-      exclusions: ['Medicamentos, exámenes y procedimientos', 'Deducibles, límites o autorizaciones que puedan existir en una póliza real'],
-      confirmation: 'Para confirmar una cobertura real, el hospital y la aseguradora deben validar la consulta y el beneficio vigente.'
-    }
+    estimate: estimateNote()
   };
+}
+
+function estimateNote() {
+  return {
+    source: 'demo',
+    generatedAt: new Date().toISOString(),
+    visitType: 'Consulta ambulatoria inicial',
+    exclusions: ['Medicamentos, exámenes y procedimientos', 'Deducibles, límites o autorizaciones que puedan existir en una póliza real'],
+    confirmation: 'Para confirmar una cobertura real, el hospital y la aseguradora deben validar la consulta y el beneficio vigente.'
+  };
+}
+
+function emptyCaseData() {
+  return { specialty: null, ageYears: null, isPregnant: null, durationDays: null };
 }
 
 // Lo que el agente entendió del caso, para que el paciente detecte a tiempo un
