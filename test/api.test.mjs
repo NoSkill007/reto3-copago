@@ -4,22 +4,34 @@ import { createServer } from '../src/app.mjs';
 
 const QVAC_BASE = 'http://127.0.0.1:11435';
 const FOLLOW_UP = '¿En qué parte del cuerpo sientes la molestia?';
+const MODEL_EXPLANATION = 'Por lo que nos contaste te conviene una consulta de la especialidad indicada. En Centro Médico La Ceiba tu gasto estimado es de USD 25.00.';
 
 // El servidor real se levanta en un puerto efímero y solo se sustituye la
 // llamada de red hacia QVAC. Lo simulado son los datos del caso en JSON que
 // la extracción recibe del modelo, con la gramática ya aplicada.
-function mockQvac(caseDataResponses) {
+//
+// Las dos llamadas del turno se distinguen por `response_format`: solo la
+// extracción impone una gramática, así que la que no la trae es la explicación.
+function mockQvac(caseDataResponses, { explanation = MODEL_EXPLANATION } = {}) {
   const realFetch = globalThis.fetch;
   let call = 0;
   return mock.method(globalThis, 'fetch', async (url, init) => {
     if (!String(url).startsWith(QVAC_BASE)) return realFetch(url, init);
     if (String(url).includes('/models')) return Response.json({ data: [{ id: 'copago', state: 'ready' }] });
+    if (!isExtraction(init)) {
+      if (explanation === null) throw new Error('la explicación no está disponible');
+      return Response.json({ choices: [{ message: { content: explanation } }] });
+    }
     const caseData = typeof caseDataResponses === 'function'
       ? caseDataResponses(call, init)
       : caseDataResponses[Math.min(call, caseDataResponses.length - 1)];
     call++;
     return Response.json({ choices: [{ message: { content: encodeCaseData(caseData) } }] });
   });
+}
+
+function isExtraction(init) {
+  return Boolean(JSON.parse(init.body).response_format);
 }
 
 function encodeCaseData(caseData) {
@@ -352,7 +364,6 @@ test('agotar el tope de preguntas compara con medicina general y lo declara apro
     assert.equal(result.body.recovery, undefined);
     assert.equal(result.body.specialty, 'general');
     assert.equal(result.body.approximate, true);
-    assert.match(result.body.explanation.text, /aproximada/i);
     assert.ok(result.body.rows.length > 0);
   });
 });
@@ -566,13 +577,73 @@ test('toda estimación declara que es una demostración y cuándo se generó', a
   });
 });
 
-test('la explicación menciona la especialidad y el gasto estimado antes de cualquier cifra', async t => {
-  mockQvac([{ specialty: 'dermatology' }]);
+test('la explicación la redacta el modelo con las cifras ya calculadas delante', async t => {
+  const requests = [];
+  const realFetch = globalThis.fetch;
+  mock.method(globalThis, 'fetch', async (url, init) => {
+    if (!String(url).startsWith(QVAC_BASE)) return realFetch(url, init);
+    if (String(url).includes('/models')) return Response.json({ data: [{ id: 'copago', state: 'ready' }] });
+    const body = JSON.parse(init.body);
+    requests.push(body);
+    const content = body.response_format ? encodeCaseData({ specialty: 'dermatology' }) : MODEL_EXPLANATION;
+    return Response.json({ choices: [{ message: { content } }] });
+  });
   await withServer(t, async base => {
     const created = await startCase(base, 'esencial');
     const result = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican');
+    assert.equal(result.body.explanation.source, 'qvac');
+    assert.equal(result.body.explanation.text, MODEL_EXPLANATION);
+
+    // El modelo copia cifras: recibe la tabla ya calculada y no calcula nada.
+    const explanationPrompt = requests.find(body => !body.response_format).messages.at(-1).content;
+    assert.match(explanationPrompt, /Centro Médico La Ceiba: gasto estimado USD 25\.00/);
+    assert.match(explanationPrompt, /copago USD 15\.00 \+ coaseguro USD 10\.00/);
+    assert.match(explanationPrompt, /Dermatología/);
+    assert.match(explanationPrompt, /fuera de la red/i);
+  });
+});
+
+test('con un plan que cubre toda la red, la explicación no habla de hospitales fuera de ella', async t => {
+  const requests = [];
+  const realFetch = globalThis.fetch;
+  mock.method(globalThis, 'fetch', async (url, init) => {
+    if (!String(url).startsWith(QVAC_BASE)) return realFetch(url, init);
+    if (String(url).includes('/models')) return Response.json({ data: [{ id: 'copago', state: 'ready' }] });
+    const body = JSON.parse(init.body);
+    requests.push(body);
+    return Response.json({ choices: [{ message: { content: body.response_format ? encodeCaseData({ specialty: 'pediatrics', ageYears: 6 }) : MODEL_EXPLANATION } }] });
+  });
+  await withServer(t, async base => {
+    const created = await startCase(base, 'plus');
+    const result = await sendMessage(base, created.body.caseId, 'A mi hija de 6 años le duele la garganta');
+    assert.ok(result.body.rows.every(row => row.covered));
+    const prompt = requests.find(body => !body.response_format).messages.at(-1).content;
+    assert.match(prompt, /no menciones hospitales fuera de la red/i);
+    assert.doesNotMatch(prompt, /donde paga la tarifa completa/i);
+  });
+});
+
+test('la comparación aparece aunque la explicación falle, con la plantilla como respaldo', async t => {
+  mockQvac([{ specialty: 'dermatology' }], { explanation: null });
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Tengo unas ronchas que me pican');
+    assert.equal(result.body.explanation.source, 'template');
     assert.match(result.body.explanation.text, /Dermatología/);
     assert.match(result.body.explanation.text, /gasto estimado/i);
+    assert.equal(result.body.recovery, undefined);
+    const ceiba = result.body.rows.find(r => r.id === 'ceiba');
+    assert.equal(ceiba.patient, 2500);
+  });
+});
+
+test('una explicación vacía del modelo también cae a la plantilla', async t => {
+  mockQvac([{ specialty: 'gastro' }], { explanation: '   ' });
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Me arde el estómago');
+    assert.equal(result.body.explanation.source, 'template');
+    assert.match(result.body.explanation.text, /Gastroenterología/);
   });
 });
 

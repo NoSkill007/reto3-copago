@@ -1,5 +1,6 @@
 import { plans } from './catalog.mjs';
 import { toolCompare } from './tools.mjs';
+import { explainComparison } from './explanation.mjs';
 import { extractCase } from './extraction.mjs';
 import { classify } from './classification.mjs';
 import { closeCaseState, createCaseState, getCaseState } from './case-store.mjs';
@@ -71,7 +72,7 @@ async function runTurn(activeCase, text) {
   const decision = classify(extraction.caseData, { questionsAsked: activeCase.questionsAsked, maxQuestions: MAX_QUESTIONS });
   if (decision.action === 'stop') return stopForUrgency(activeCase);
   if (decision.action === 'ask') return presentQuestion(activeCase, decision.question);
-  return presentComparison(activeCase, decision.specialty, decision.approximate);
+  return await presentComparison(activeCase, decision.specialty, decision.approximate);
 }
 
 // La transcripción contiene solo evidencia sobre el paciente: lo que dijo y las
@@ -106,19 +107,18 @@ function presentQuestion(activeCase, question) {
   };
 }
 
-function presentComparison(activeCase, specialty, approximate) {
+async function presentComparison(activeCase, specialty, approximate) {
   const { specialtyName, rows } = toolCompare(activeCase.planId, specialty);
   activeCase.comparison = { specialty, rows };
-  const text = approximate
-    ? `No logramos precisar la especialidad con lo que nos contaste, así que te orientamos con ${specialtyName} y esta estimación es aproximada. Aquí puedes comparar el gasto estimado de una consulta en cada hospital.`
-    : `Con base en lo que nos contaste, te sugerimos consultar con ${specialtyName}. Aquí puedes comparar el gasto estimado de una consulta en cada hospital.`;
+  const plan = plans.find(candidate => candidate.id === activeCase.planId);
+  const explanation = await explainComparison({ plan, specialtyName, rows, caseData: activeCase.caseData, approximate });
   return {
     specialty,
     specialtyName,
     approximate,
     rows,
     understood: understood(activeCase.caseData, specialty),
-    explanation: { source: 'template', text },
+    explanation,
     estimate: {
       source: 'demo',
       generatedAt: new Date().toISOString(),
