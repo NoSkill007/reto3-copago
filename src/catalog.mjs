@@ -12,7 +12,7 @@ const rateRows = query('select specialty_id, hospital_id, rate_cents from rates'
 
 export const specialtyDefinitions = Object.fromEntries(specialtyRows.map(specialty => [
   specialty.id,
-  { name: specialty.name, scope: specialty.scope, rates: ratesBy('specialty_id', specialty.id, 'hospital_id') }
+  { name: specialty.name, scope: specialty.scope, rates: ratesPerHospital(specialty.id) }
 ]));
 
 export const specialties = Object.fromEntries(specialtyRows.map(specialty => [specialty.id, specialty.name]));
@@ -21,7 +21,7 @@ export const hospitals = hospitalRows.map(hospital => ({
   id: hospital.id,
   name: hospital.name,
   area: hospital.area,
-  rates: ratesBy('hospital_id', hospital.id, 'specialty_id')
+  rates: ratesPerSpecialty(hospital.id)
 }));
 
 export const plans = planRows.map(plan => ({
@@ -38,6 +38,10 @@ function query(statement, ...parameters) {
   return database.prepare(statement).all(...parameters);
 }
 
-function ratesBy(column, id, keyColumn) {
-  return Object.fromEntries(rateRows.filter(rate => rate[column] === id).map(rate => [rate[keyColumn], rate.rate_cents]));
+function ratesPerHospital(specialtyId) {
+  return Object.fromEntries(rateRows.filter(rate => rate.specialty_id === specialtyId).map(rate => [rate.hospital_id, rate.rate_cents]));
+}
+
+function ratesPerSpecialty(hospitalId) {
+  return Object.fromEntries(rateRows.filter(rate => rate.hospital_id === hospitalId).map(rate => [rate.specialty_id, rate.rate_cents]));
 }

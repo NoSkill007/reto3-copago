@@ -18,7 +18,7 @@
     "watch:css": "node scripts/css.mjs --watch"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "devDependencies": {
     "@qvac/cli": "^0.13.0",

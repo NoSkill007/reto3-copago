@@ -33,20 +33,13 @@ export function changePlan(caseId, planId) {
   if (!activeCase.comparison) return { plan: planId };
 
   const { specialty, approximate } = activeCase.comparison;
-  const { specialtyName, rows } = toolCompare(planId, specialty);
-  activeCase.comparison = { specialty, approximate, rows };
+  const { specialtyName, rows } = recompute(activeCase, specialty, approximate);
   return {
     plan: planId,
-    specialty,
-    specialtyName,
-    approximate,
-    rows,
-    understood: understood(activeCase.caseData ?? emptyCaseData(), specialty),
     // Recalcular no llama al modelo, así que la prosa es la plantilla: el
     // paciente ve los importes nuevos de inmediato y no una explicación que
     // todavía cita las cifras del plan anterior.
-    explanation: { source: 'template', text: templateText(specialtyName, approximate) },
-    estimate: estimateNote()
+    ...comparisonResult(activeCase, { specialty, specialtyName, approximate, rows, explanation: { source: 'template', text: templateText(specialtyName, approximate) } })
   };
 }
 
@@ -141,16 +134,28 @@ function presentQuestion(activeCase, { question, options }) {
 }
 
 async function presentComparison(activeCase, specialty, approximate) {
-  const { specialtyName, rows } = toolCompare(activeCase.planId, specialty);
-  activeCase.comparison = { specialty, approximate, rows };
+  const { specialtyName, rows } = recompute(activeCase, specialty, approximate);
   const plan = plans.find(candidate => candidate.id === activeCase.planId);
   const explanation = await explainComparison({ plan, specialtyName, rows, caseData: activeCase.caseData, approximate });
+  return comparisonResult(activeCase, { specialty, specialtyName, approximate, rows, explanation });
+}
+
+// El cálculo de la comparación y la forma de la respuesta se comparten entre el
+// turno que la produce y el recálculo por cambio de plan, para que no puedan
+// divergir en los campos que el paciente ve.
+function recompute(activeCase, specialty, approximate) {
+  const { specialtyName, rows } = toolCompare(activeCase.planId, specialty);
+  activeCase.comparison = { specialty, approximate, rows };
+  return { specialtyName, rows };
+}
+
+function comparisonResult(activeCase, { specialty, specialtyName, approximate, rows, explanation }) {
   return {
     specialty,
     specialtyName,
     approximate,
     rows,
-    understood: understood(activeCase.caseData, specialty),
+    understood: understood(activeCase.caseData ?? emptyCaseData(), specialty),
     explanation,
     estimate: estimateNote()
   };

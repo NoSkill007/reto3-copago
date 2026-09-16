@@ -187,6 +187,25 @@ Medido contra el modelo, `followUpIsYesNo` daba false en todos los casos probado
 El campo pasó a ser `followUpOptions`, un arreglo de opciones que el modelo redacta para su propia pregunta, y entonces sí aparecen donde importan: "¿la garganta o la rodilla?" ofrece las dos molestias.
 Las opciones se validan como se valida todo lo que viene del modelo: se recortan las vacías, repetidas, largas y las que sobran de cuatro.
 
+## Desviaciones del ticket, con su motivo
+
+Tres, todas deliberadas y ninguna aprobada por el ticket, que decidió otra cosa.
+
+**Un campo más en los datos del caso.**
+El ticket fija "cinco campos más la pregunta de seguimiento" y razona que "cada campo adicional es una cosa más que el modelo puede equivocar".
+`followUpOptions` es un séptimo campo y hace falta porque la historia 21 pide botones de respuesta y nada más puede decir si la pregunta es cerrada: detectarlo en el cliente sería volver a la comprensión por expresiones regulares que este ticket eliminó.
+Lo que mitiga el riesgo del ticket es que el campo no describe el caso sino la pregunta que el modelo acaba de escribir, no entra en `understood` ni en ninguna decisión de clasificación, y cualquier valor inservible degrada a arreglo vacío, que simplemente no pinta botones.
+Equivocarlo cuesta un botón de más o de menos, no una orientación equivocada.
+
+**La historia 21 se cumplió más ancha de lo que pide.**
+Pide botones de sí o no; se entregaron botones para cualquier pregunta cerrada.
+El motivo está medido y no es comodidad: con `followUpIsYesNo` el modelo devolvió false en todos los casos probados, porque la decisión del propio ticket de que solo la especialidad bloquee la comparación elimina las preguntas de sí o no.
+Cumplir la historia al pie de la letra habría entregado una función que nunca se ve.
+
+**El umbral pediátrico salió del código.**
+El ticket dice "menor de doce a pediatría", pero en el mismo párrafo explica que `ageYears` existe porque "el modelo los usa para inferir la especialidad", así que la regla es trabajo del modelo y no del código.
+El ADR documenta por qué el intento de tenerla también en `classify` falló y qué cuesta cada opción.
+
 ## Mediciones del paso 3
 
 Con Qwen3-4B y el prompt de `src/extraction.mjs`, `npm run eval:extraction` mide al cierre del ticket:

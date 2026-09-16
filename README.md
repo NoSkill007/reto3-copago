@@ -1,6 +1,6 @@
 # Claro · Estimador de copago
 
-Demo local para Panamá con datos completamente ficticios. Requiere Node.js 22 o posterior.
+Demo local para Panamá con datos completamente ficticios. Requiere Node.js 24 o posterior, porque el catálogo usa el módulo `node:sqlite` sin bandera experimental.
 
 ## Ejecutar
 
@@ -8,7 +8,7 @@ Demo local para Panamá con datos completamente ficticios. Requiere Node.js 22 o
 npm start
 ```
 
-Ese único comando instala las dependencias si faltan, inicia QVAC local en el puerto dedicado 11435 y levanta la aplicación en http://127.0.0.1:3000. La primera ejecución requiere conectividad y puede tardar mientras descarga el modelo; las siguientes reutilizan la caché. Espera hasta 95 segundos por el worker y, si el intento GPU falla, prueba una vez en CPU. Si la respuesta del agente tiene un formato inválido, la aplicación le pide una corrección automática una vez antes de detener la orientación; nunca muestra precios sin una orientación válida.
+Ese único comando instala las dependencias si faltan, inicia QVAC local en el puerto dedicado 11435 y levanta la aplicación en http://127.0.0.1:3000. La primera ejecución requiere conectividad y puede tardar mientras descarga el modelo; las siguientes reutilizan la caché. Espera hasta 95 segundos por el worker y, si el intento GPU falla, prueba una vez en CPU. La extracción impone su esquema por gramática, así que un JSON malformado no es posible; un identificador que no exista en el catálogo degrada a nulo y el agente pregunta en vez de inventar. Nunca muestra precios sin una orientación válida.
 
 Para iniciar solamente la interfaz durante desarrollo:
 
@@ -16,11 +16,11 @@ Para iniciar solamente la interfaz durante desarrollo:
 npm run start:web
 ```
 
-Los diagnósticos avanzados siguen disponibles mediante `npm run qvac:doctor`. El modelo pequeño inicial sirve para comprobar la integración, no está validado clínicamente. No hay servicios de IA en la nube ni claves. Los casos permanecen solo en memoria, vencen tras 30 minutos de inactividad y no se guardan como historial clínico.
+Los diagnósticos avanzados siguen disponibles mediante `npm run qvac:doctor`. El modelo local es Qwen3-4B-Q4_K_M y sirve para comprobar la integración: no está validado clínicamente. No hay servicios de IA en la nube ni claves. Los casos permanecen solo en memoria, vencen tras 30 minutos de inactividad y no se guardan como historial clínico.
 
 ## Seguridad y límites de la demo
 
-- Una posible urgencia detiene siempre la estimación. En menores de 12 años con fiebre, la aplicación pregunta primero por señales de alarma; una respuesta afirmativa bloquea precios y recomienda urgencias. No diagnostica ni sustituye la atención médica.
+- Una posible urgencia detiene siempre la estimación. El modelo extrae las señales de alarma de las palabras del paciente, contra una lista cerrada de ocho, y cualquiera de ellas bloquea los precios y recomienda urgencias antes de cualquier otra consideración. No diagnostica ni sustituye la atención médica.
 - La estimación muestra cuándo fue generada, su tipo de consulta y exclusiones. Incluye únicamente una consulta ambulatoria inicial ficticia; no confirma cobertura ni garantiza pago.
 - La selección de hospital es un siguiente paso informativo. La demo no está conectada a agendas, geolocalización ni sistemas de beneficios.
 - No ingreses nombres, números de póliza, cédula u otros datos personales.
@@ -40,11 +40,11 @@ El modelo local extrae las señales de alarma del lenguaje del paciente, pero no
 ## Verificación realizada
 
 - Comprobación de sintaxis de servidor y cliente.
-- `npm run eval:extraction` contra Qwen3-4B: precisión de orientación 100% (14/14), cobertura de señales de alarma 100% (8/8) y un turno promedio hasta la comparación. Ver las advertencias sobre el tamaño del conjunto en `docs/tickets/6-notes.md`.
+- `npm run eval:extraction` contra Qwen3-4B: precisión de orientación 93% (13/14), cobertura de señales de alarma 100% (8/8), un turno promedio hasta la comparación y 2 de 3 casos vagos que preguntan en vez de adivinar. Los dos fallos que quedan son deliberados y están explicados, junto con las advertencias sobre el tamaño del conjunto, en `docs/tickets/6-notes.md`.
 - Prueba de humo `QVAC_LIVE_TEST=1 npm run test:qvac:live` contra el modelo local, en verde.
 - Los recorridos manuales de navegador son anteriores al cambio de modelo y de extracción; hay que repetirlos.
 
-`npm run check` y las pruebas automatizadas cubren las diez especialidades, la detención por señal de alarma y su precedencia, la pregunta de seguimiento redactada por el modelo, la corrección de un dato en un turno posterior, el aislamiento de casos, los reintentos idempotentes y el fallback sin precios. Para comprobar que un turno real llega hasta el modelo, con `npm start` activo ejecuta `$env:QVAC_LIVE_TEST=1; npm run test:qvac:live` en PowerShell. Esa prueba es humo opcional: la calidad del modelo la mide la evaluación de extracción.
+`npm run check` y las pruebas automatizadas cubren las diez especialidades, la detención por señal de alarma y su precedencia, la pregunta de seguimiento redactada por el modelo, la corrección de un dato y el cambio de persona en un turno posterior, el respaldo a la plantilla cuando la explicación falla, el recálculo al cambiar de plan sin llamar al modelo, el aislamiento de casos, los reintentos idempotentes y el fallback sin precios. Para comprobar que un turno real llega hasta el modelo, con `npm start` activo ejecuta `$env:QVAC_LIVE_TEST=1; npm run test:qvac:live` en PowerShell. Esa prueba es humo opcional: la calidad del modelo la mide la evaluación de extracción.
 
 ## Evaluación de extracción
 
