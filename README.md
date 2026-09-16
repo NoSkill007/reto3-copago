@@ -46,6 +46,10 @@ El detector ilustrativo de palabras no descarta urgencias ni maneja todas las ne
 
 `npm run check` y las pruebas automatizadas cubren las seis especialidades, preguntas estructuradas por QVAC, aislamiento de casos, reintentos idempotentes, fiebre infantil y fallback sin precios. Para medir el comportamiento del modelo real, con `npm start` activo ejecuta `$env:QVAC_LIVE_TEST=1; npm run test:qvac:live` en PowerShell. Esa prueba es opcional porque usa el modelo local y no un simulador.
 
+## Evaluación de extracción
+
+Con `npm start` (o `npm run qvac:start`) activo, `npm run eval:extraction` mide contra QVAC real qué tan bien orienta el sistema: precisión de especialidad, cobertura de señales de alarma y turnos promedio hasta la comparación, sobre un conjunto etiquetado en `eval/dataset.mjs`. No tiene umbral de aprobación, no participa en `npm test` y sus números dependen del modelo activo en `qvac.config.json`.
+
 Las señales de alarma pediátricas usadas por la demo se basan en orientación pública de la [OMS](https://www.who.int/publications/i/item/9789241510219) y los [signos de emergencia en niños de CDC](https://www.cdc.gov/flu/signs-symptoms/). Son un guardarraíl conservador, no una guía clínica completa.
 
 La revisión formal de especificación y estándares se hizo contra el punto de partida `3e14038`; los hallazgos materiales están incorporados.
