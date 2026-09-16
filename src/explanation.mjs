@@ -41,6 +41,7 @@ function systemPrompt() {
     'Menciona el hospital en red más conveniente con su gasto estimado.',
     'Sobre los hospitales fuera de la red, di exactamente lo que te indiquen los datos y nada más: si te dicen que no hay ninguno, no los menciones.',
     '',
+    'La especialidad es exactamente la que te doy en "Especialidad": cópiala tal cual y no nombres ninguna otra, aunque los datos del caso te sugieran otra cosa.',
     'Copia únicamente las cifras que te entrego, tal como te las entrego. Nunca calcules, estimes ni redondees una cifra propia.',
     'No digas nunca que la consulta es urgente, grave o prioritaria, ni cuándo debe atenderse: esta herramienta no evalúa urgencias.',
     'No des un diagnóstico, no nombres enfermedades y no prometas cobertura garantizada: esto orienta un gasto, no diagnostica.',
@@ -79,13 +80,17 @@ function networkInstruction(outOfNetwork) {
   ];
 }
 
+// Los datos del caso se entregan como hechos y nunca nombran una especialidad.
+// Esta función afirmaba "y por eso corresponde pediatría" en cuanto la edad
+// bajaba de doce, y el modelo lo copiaba: escribía Pediatría sobre una tabla
+// de Dermatología, con las cifras de dermatología al lado.
 function reason(caseData, approximate) {
   if (approximate) return 'no se pudo precisar la especialidad con lo que contaste, así que la orientación es aproximada; dilo con claridad y sin inventar un motivo.';
   const details = [
-    caseData.ageYears !== null && caseData.ageYears < 12 ? 'se trata de un menor de edad, y por eso corresponde pediatría' : null,
+    caseData.ageYears !== null ? `la persona con esta molestia tiene ${caseData.ageYears} año(s)` : null,
     caseData.isPregnant === true ? 'hay un embarazo' : null
   ].filter(Boolean);
-  return details.length ? `la molestia que describiste y que ${details.join(', y que ')}.` : 'la molestia que describiste.';
+  return details.length ? `la molestia que describiste, y ${details.join(', y ')}.` : 'la molestia que describiste.';
 }
 
 function money(cents) {

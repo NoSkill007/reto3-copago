@@ -699,6 +699,31 @@ test('la explicación la redacta el modelo con las cifras ya calculadas delante'
   });
 });
 
+test('los datos del caso no le sugieren al modelo una especialidad distinta de la comparada', async t => {
+  // El motivo de la orientación afirmaba "por eso corresponde pediatría" en
+  // cuanto la edad bajaba de doce, y el modelo lo copiaba encima de una tabla
+  // de otra especialidad.
+  const requests = [];
+  const realFetch = globalThis.fetch;
+  mock.method(globalThis, 'fetch', async (url, init) => {
+    if (!String(url).startsWith(QVAC_BASE)) return realFetch(url, init);
+    if (String(url).includes('/models')) return Response.json({ data: [{ id: 'copago', state: 'ready' }] });
+    const body = JSON.parse(init.body);
+    requests.push(body);
+    return Response.json({ choices: [{ message: { content: body.response_format ? encodeCaseData({ specialty: 'dermatology', ageYears: 5 }) : MODEL_EXPLANATION } }] });
+  });
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const result = await sendMessage(base, created.body.caseId, 'Mi hijo de 5 años tiene unas manchas en la piel');
+    assert.equal(result.body.specialty, 'dermatology');
+
+    const prompt = requests.find(body => !body.response_format).messages.at(-1).content;
+    assert.match(prompt, /Especialidad: Dermatología/);
+    assert.doesNotMatch(prompt, /pediatr/i);
+    assert.match(prompt, /tiene 5 año/);
+  });
+});
+
 test('con un plan que cubre toda la red, la explicación no habla de hospitales fuera de ella', async t => {
   const requests = [];
   const realFetch = globalThis.fetch;

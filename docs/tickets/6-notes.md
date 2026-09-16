@@ -187,6 +187,19 @@ Medido contra el modelo, `followUpIsYesNo` daba false en todos los casos probado
 El campo pasó a ser `followUpOptions`, un arreglo de opciones que el modelo redacta para su propia pregunta, y entonces sí aparecen donde importan: "¿la garganta o la rodilla?" ofrece las dos molestias.
 Las opciones se validan como se valida todo lo que viene del modelo: se recortan las vacías, repetidas, largas y las que sobran de cuatro.
 
+## El motivo de la orientación no puede nombrar una especialidad
+
+Reportado desde el navegador: la prosa decía "la especialidad que corresponde es Pediatría" sobre una tabla de Dermatología, con las cifras de dermatología al lado.
+
+La causa estaba en `reason()` de `src/explanation.mjs`, que afirmaba "se trata de un menor de edad, y por eso corresponde pediatría" en cuanto `ageYears` bajaba de doce.
+Era un resto del umbral pediátrico retirado de `classify` que sobrevivió en el prompt de la explicación, donde nadie lo vigilaba.
+El modelo lo copiaba, como copia todo lo que se le entrega.
+
+Los datos del caso se entregan ahora como hechos, sin nombrar especialidades, y el prompt exige copiar la especialidad tal cual se recibe.
+Una prueba afirma que el prompt de una comparación de dermatología para un niño de cinco años no contiene la palabra "pediatría".
+
+Lección: retirar una regla del código no basta si su redacción vive también en un prompt.
+
 ## Desviaciones del ticket, con su motivo
 
 Tres, todas deliberadas y ninguna aprobada por el ticket, que decidió otra cosa.
