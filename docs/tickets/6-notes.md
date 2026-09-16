@@ -200,6 +200,23 @@ Una prueba afirma que el prompt de una comparación de dermatología para un ni�
 
 Lección: retirar una regla del código no basta si su redacción vive también en un prompt.
 
+## La explicación repetía el ejemplo del prompt
+
+Reportado desde el navegador: tres turnos seguidos con la misma prosa, palabra por palabra.
+
+No era el respaldo a la plantilla: la fuente era `qvac` en los tres.
+El prompt llevaba un ejemplo resuelto de dermatología en La Ceiba con las cifras USD 25.00 y USD 95.00, que son exactamente las que produce el recorrido más común de la demo, y el modelo lo recitaba.
+Alrededor del ejemplo, las instrucciones dictaban el orden de las oraciones una por una, así que el modelo no tenía nada que decidir.
+
+El prompt pasó a declarar qué tiene que lograr la explicación y qué no puede romper, sin dictar la forma, y a señalar qué tiene de particular cada caso (días, edad, plan, cuánto ahorra el seguro, diferencia con el hospital más caro).
+El ejemplo resuelto se eliminó.
+
+Aflojarlo trajo un fallo peor que la repetición y hubo que cerrarlo aparte: el modelo empezó a reetiquetar las cifras, y escribió que de un gasto de USD 25.00 "USD 15.00 son cubiertos por su seguro y USD 10.00 son su responsabilidad", cuando el copago y el coaseguro los paga el paciente.
+Los dígitos eran correctos y el significado no.
+El prompt fija ahora qué significa cada cifra y prohíbe redistribuirlas o explicar una como si fuera otra, y las muestras posteriores etiquetan bien en todos los casos probados.
+
+Lección: un ejemplo resuelto en el prompt es una plantilla con otro nombre, y aflojar la forma exige cerrar antes el significado de los datos.
+
 ## Desviaciones del ticket, con su motivo
 
 Tres, todas deliberadas y ninguna aprobada por el ticket, que decidió otra cosa.
@@ -236,8 +253,17 @@ Ampliar el conjunto es la forma de recuperar la señal.
 Quedan dos casos fallando a propósito.
 
 `correction-edad-pediatria`: la garganta de un niño de cuatro años se orienta a otorrinolaringología en vez de pediatría.
-Es el precio de retirar el umbral pediátrico del código, y se intentó recuperar por prompt y por datos del catálogo sin éxito estable: cada redacción que arreglaba este caso rompía un cambio de persona o mandaba la corrección a ginecología.
-Ahí se paró el ajuste, porque seguir era cambiar un fallo por otro a ciegas.
+Es el precio de retirar el umbral pediátrico del código, y se intentó recuperar tres veces sin éxito estable.
+
+Primero por prompt y por los alcances del catálogo: cada redacción que arreglaba este caso rompía un cambio de persona o mandaba la corrección a ginecología.
+
+Después con un campo explícito, `complaintIsForChild`, probado en dos posiciones del esquema, porque el orden de las propiedades determina el orden de generación y por tanto qué ve el modelo al decidir.
+Generado después de `specialty` acertó 7 de 10 casos; después de `ageYears`, 8 de 10.
+Ninguna de las dos resolvió el cambio de persona, y las dos tuvieron un costo peor: con el campo presente, "mi hijo de 5 años tiene fiebre" seguido de "estoy embarazada y tengo molestias" devolvía `pediatrics` como especialidad, un caso que hoy sale bien.
+Añadir el campo degradaba la extracción que ya funciona.
+
+La conclusión medida es que el modelo no distingue de quién es la molestia cuando antes se habló de un niño, y que no es cuestión de cómo se le pregunte.
+Ahí se paró el ajuste.
 
 `vague-malestar-general`: "tengo un malestar general" se orienta a medicina general en vez de preguntar.
 La palabra "general" aparece literalmente en la molestia y el modelo se ancla en ella.
