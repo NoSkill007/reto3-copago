@@ -251,6 +251,45 @@ test('una edad de doce años o más conserva la especialidad del síntoma', asyn
   });
 });
 
+test('la extracción nunca recibe de vuelta las conclusiones del agente', async t => {
+  // Cuando la orientación ya anunciada viajaba en la transcripción, el modelo la
+  // repetía y una corrección de la edad no cambiaba nada.
+  const conversations = [];
+  mockQvac((call, init) => {
+    conversations.push(JSON.parse(init.body).messages.at(-1).content);
+    return call === 0 ? { specialty: 'pediatrics', ageYears: 10 } : { specialty: 'dermatology', ageYears: 22 };
+  });
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    const first = await sendMessage(base, created.body.caseId, 'Tengo una hija de 10 años con unas manchas en la piel');
+    assert.equal(first.body.specialty, 'pediatrics');
+
+    const corrected = await sendMessage(base, created.body.caseId, 'Perdón era 22 años, ya es mayor de edad');
+    assert.equal(corrected.body.specialty, 'dermatology');
+    assert.equal(corrected.body.understood.ageYears, 22);
+
+    assert.match(conversations[1], /manchas en la piel/);
+    assert.match(conversations[1], /22 años/);
+    assert.doesNotMatch(conversations[1], /te sugerimos consultar/);
+    assert.doesNotMatch(conversations[1], /Pediatría/);
+  });
+});
+
+test('la pregunta de seguimiento sí viaja en la transcripción, para dar contexto a una respuesta breve', async t => {
+  const conversations = [];
+  mockQvac((call, init) => {
+    conversations.push(JSON.parse(init.body).messages.at(-1).content);
+    return call === 0 ? { specialty: null, followUpQuestion: '¿Qué edad tiene la persona?' } : { specialty: 'pediatrics', ageYears: 4 };
+  });
+  await withServer(t, async base => {
+    const created = await startCase(base, 'esencial');
+    await sendMessage(base, created.body.caseId, 'Le duele la garganta');
+    await sendMessage(base, created.body.caseId, '4 años');
+    assert.match(conversations[1], /¿Qué edad tiene la persona\?/);
+    assert.match(conversations[1], /4 años/);
+  });
+});
+
 test('el agente muestra qué entendió del caso en cada turno', async t => {
   mockQvac([{ specialty: 'pediatrics', ageYears: 5, isPregnant: false, durationDays: 2 }]);
   await withServer(t, async base => {

@@ -62,11 +62,7 @@ export async function sendMessage(caseId, text, { turnId } = {}) {
 }
 
 async function runTurn(activeCase, text) {
-  // Un mensaje de paciente al final de la transcripción solo puede venir de un
-  // turno que falló antes de responder: todo camino con respuesta deja una
-  // entrada del agente detrás. Reintentarlo no debe duplicarlo.
-  const lastEntry = activeCase.transcript.at(-1);
-  if (lastEntry?.role !== 'user' || lastEntry.text !== text) activeCase.transcript.push({ role: 'user', text });
+  recordPatientMessage(activeCase, text);
 
   const extraction = await extractCase(activeCase.transcript);
   if (!extraction.ok) return recoveryResult(extraction.reason);
@@ -78,10 +74,18 @@ async function runTurn(activeCase, text) {
   return presentComparison(activeCase, decision.specialty, decision.approximate);
 }
 
+// La transcripción contiene solo evidencia sobre el paciente: lo que dijo y las
+// preguntas a las que responde. Las conclusiones del agente se quedan fuera a
+// propósito. Cuando estaban dentro, la extracción las leía de vuelta y repetía
+// la especialidad ya anunciada, así que una corrección de la edad no llegaba a
+// cambiar nada: un "perdón, tiene 22 años" seguía saliendo en pediatría.
+function recordPatientMessage(activeCase, text) {
+  if (activeCase.transcript.at(-1)?.text !== text) activeCase.transcript.push({ role: 'user', text });
+}
+
 function stopForUrgency(activeCase) {
   activeCase.urgent = true;
   activeCase.comparison = null;
-  activeCase.transcript.push({ role: 'agent', text: URGENT_MESSAGE });
   return urgentResult();
 }
 
@@ -108,7 +112,6 @@ function presentComparison(activeCase, specialty, approximate) {
   const text = approximate
     ? `No logramos precisar la especialidad con lo que nos contaste, así que te orientamos con ${specialtyName} y esta estimación es aproximada. Aquí puedes comparar el gasto estimado de una consulta en cada hospital.`
     : `Con base en lo que nos contaste, te sugerimos consultar con ${specialtyName}. Aquí puedes comparar el gasto estimado de una consulta en cada hospital.`;
-  activeCase.transcript.push({ role: 'agent', text });
   return {
     specialty,
     specialtyName,
