@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node scripts/start-all.mjs",
     "start:web": "node scripts/css.mjs && node server.mjs",
-    "check": "node --check server.mjs && node --check qvac.config.mjs && node --check scripts/css.mjs && node --check scripts/start-all.mjs && node --check public/app.js && node --check src/app.mjs && node --check src/agent.mjs && node --check src/case-store.mjs && node --check src/classification.mjs && node --check src/extraction.mjs && node --check src/qvac.mjs && node --check src/tools.mjs && node --check src/catalog.mjs && node --check src/estimate.mjs && node --check eval/dataset.mjs && node --check eval/run.mjs",
+    "check": "node --check server.mjs && node --check qvac.config.mjs && node --check scripts/css.mjs && node --check scripts/start-all.mjs && node --check public/app.js && node --check src/app.mjs && node --check src/agent.mjs && node --check src/case-store.mjs && node --check src/classification.mjs && node --check src/extraction.mjs && node --check src/qvac.mjs && node --check src/tools.mjs && node --check src/catalog.mjs && node --check src/db/index.mjs && node --check src/estimate.mjs && node --check eval/dataset.mjs && node --check eval/run.mjs",
     "test": "node --test",
     "test:qvac:live": "node --test test/qvac-live.test.mjs",
     "eval:extraction": "node eval/run.mjs",
