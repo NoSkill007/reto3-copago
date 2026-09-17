@@ -1,6 +1,6 @@
 import { chatCompletion } from './qvac.mjs';
 
-const EXPLANATION_TIMEOUT_MS = 45000;
+const EXPLANATION_TIMEOUT_MS = 90000;
 
 // Segunda llamada al modelo, solo en el turno final. Recibe las cifras ya
 // calculadas y las copia: no genera ninguna. Si falla o tarda, se usa la

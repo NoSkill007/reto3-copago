@@ -1,7 +1,7 @@
 import { specialtyDefinitions } from './catalog.mjs';
 import { chatCompletion } from './qvac.mjs';
 
-const EXTRACTION_TIMEOUT_MS = 60000;
+const EXTRACTION_TIMEOUT_MS = 120000;
 const DEFAULT_FOLLOW_UP = '¿Puedes contarme un poco más sobre la molestia que quieres explorar?';
 
 // Cada señal de alarma va acompañada de cómo la describe un paciente, porque el
